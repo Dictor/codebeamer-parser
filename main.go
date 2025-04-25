@@ -17,9 +17,13 @@ import (
 
 // --- Functions ---
 func createFetchOption(httpMethod string, jsonBody map[string]interface{}) map[string]interface{} {
-	jsonBodyString := ""
+	var (
+		jsonBodyString []byte = []byte{}
+		err            error
+	)
+
 	if jsonBody != nil {
-		jsonBodyString, err := json.Marshal(jsonBody)
+		jsonBodyString, err = json.Marshal(jsonBody)
 		if err != nil {
 			panic(err)
 		}
@@ -34,7 +38,7 @@ func createFetchOption(httpMethod string, jsonBody map[string]interface{}) map[s
 			"Content-Type": "application/json; charset=UTF-8",
 		},
 		"body": string(jsonBodyString),
-	}, nil
+	}
 }
 
 // getElementTextBySelector는 주어진 CSS 선택자에 해당하는 첫 번째 요소의 텍스트 내용을 가져옵니다.
