@@ -16,10 +16,13 @@ import (
 )
 
 // --- Functions ---
-func createFetchOption(httpMethod string, jsonBody map[string]interface{}) (map[string]interface{}, error) {
-	jsonBodyString, err := json.Marshal(jsonBody)
-	if err != nil {
-		return map[string]interface{}{}, err
+func createFetchOption(httpMethod string, jsonBody map[string]interface{}) map[string]interface{} {
+	jsonBodyString := ""
+	if jsonBody != nil {
+		jsonBodyString, err := json.Marshal(jsonBody)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	return map[string]interface{}{
@@ -130,10 +133,17 @@ func main() {
 
 	log.Println("Chrome 연결 성공")
 	log.Println("자동으로 코드비머 페이지로 이동합니다, 30초안에 로그인을 진행해주세요.")
+
+	GetTrackerHomePageTreeResult := ""
 	err := chromedp.Run(taskCtx,
 		// 대상 URL로 이동
-		chromedp.Navigate("about:blank"),
+		chromedp.Navigate(CodebeamerHost),
 		chromedp.Sleep(30*time.Second),
+		executeFetchInPage(
+			fmt.Sprintf(GetTrackerHomePageTreeUrl, FcuProjectId),
+			createFetchOption("POST", nil),
+			&GetTrackerHomePageTreeResult,
+		),
 	)
 
 	if err != nil {
@@ -145,6 +155,8 @@ func main() {
 	}
 
 	// 5. 결과 출력
+	log.Printf("결과: %s", GetTrackerHomePageTreeResult)
+
 	log.Println("작업 완료, Enter키를 누르면 이 프로그램과 Chrome이 종료됩니다.")
 	reader := bufio.NewReader(os.Stdin)
 	_, _ = reader.ReadString('\n')
