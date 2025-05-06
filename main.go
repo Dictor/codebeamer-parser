@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 
 	// 경로 조작 위해 추가
 	"time"
@@ -251,6 +252,7 @@ func main() {
 		// < Step 3. 각 사양문서의 자식 파싱 >
 		var searchFunc func(*TrackerTreeResponse, *TrackerTreeResponse) (bool, error)
 		searchFunc = func(node *TrackerTreeResponse, searchResult *TrackerTreeResponse) (bool, error) {
+			log.Printf("[Step 3] 탐색 ID: %s", node.Id)
 			lvNodeData := ""
 			err := chromedp.Run(taskCtx,
 				chromedp.Sleep(1*time.Second),
@@ -292,7 +294,8 @@ func main() {
 		for _, lv2Node := range treeConfigData.Children {
 			found, _ := searchFunc(&lv2Node, &treeConfigDataSearchResult)
 			if found {
-				log.Printf("[Step 2] 하위 사양 노드 ID '%s'의 RQ 검색 성공", treeConfigData.Id)
+				log.Printf("[Step 3] 하위 사양 노드 ID '%s'의 RQ 검색 성공", treeConfigData.Id)
+				log.Printf("[Step 3] RQ ID '%s'의 복잡도 = %d", treeConfigDataSearchResult.Id, strings.Count(treeConfigDataSearchResult.Text, "[ISSUE:"))
 				break
 			}
 		}
