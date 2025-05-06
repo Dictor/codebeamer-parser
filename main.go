@@ -6,39 +6,60 @@ import (
 	"encoding/json" // JSON 처리를 위해 추가
 	"fmt"
 	"log" // os.Executable 사용 위해 추가
+	"net/url"
 	"os"
+	"strconv"
 
 	// 경로 조작 위해 추가
 	"time"
 
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
+	"github.com/samber/lo"
 )
 
 // --- Functions ---
-func createFetchOption(httpMethod string, jsonBody map[string]interface{}) map[string]interface{} {
+func createFetchOption(httpMethod string, isJson bool, body map[string]interface{}) map[string]interface{} {
 	var (
-		jsonBodyString []byte = []byte{}
-		err            error
+		reqBody []byte = []byte{}
+		err     error
 	)
 
-	if jsonBody != nil {
-		jsonBodyString, err = json.Marshal(jsonBody)
-		if err != nil {
-			panic(err)
+	if body != nil {
+		if isJson { // json
+			reqBody, err = json.Marshal(body)
+			if err != nil {
+				panic(err)
+			}
+		} else { // form
+			values := url.Values{}
+			for key, value := range body {
+				var valueStr string
+				if value == nil {
+					valueStr = ""
+				} else {
+					valueStr = fmt.Sprintf("%v", value)
+				}
+				values.Add(key, valueStr)
+			}
+			reqBody = []byte(values.Encode())
 		}
 	}
 
-	return map[string]interface{}{
+	req := map[string]interface{}{
 		"method":      httpMethod,
 		"mode":        "cors",
 		"cache":       "default",
 		"credentials": "include",
-		"header": map[string]string{
-			"Content-Type": "application/json; charset=UTF-8",
-		},
-		"body": string(jsonBodyString),
+		"header":      map[string]string{},
+		"body":        string(reqBody),
 	}
+	if isJson {
+		req["header"].(map[string]string)["Content-Type"] = "application/json; charset=UTF-8"
+	} else {
+		req["header"].(map[string]string)["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+	}
+	return req
 }
 
 // getElementTextBySelector는 주어진 CSS 선택자에 해당하는 첫 번째 요소의 텍스트 내용을 가져옵니다.
@@ -107,62 +128,177 @@ func executeFetchInPage(fetchURL string, options map[string]interface{}, fetchRe
 	})
 }
 
+// waitUntilJSVariableIsDefined는 특정 JS 변수가 정의될 때까지 기다리는 Action을 반환합니다.
+// 이 Action은 chromedp.Run 시퀀스 내에서 사용될 수 있습니다.
+// variableName: 기다릴 전역 변수의 이름 (예: "myGlobalVar")
+// timeout: 최대 대기 시간
+// interval: 존재 여부를 확인할 간격
+func waitUntilJSVariableIsDefined(variableName string, timeout, interval time.Duration) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+
+		// 변수 존재 여부를 확인하는 JavaScript 스크립트
+		checkScript := fmt.Sprintf("typeof window.%s !== 'undefined'", variableName)
+		// Optional: Wait for the variable to be truthy
+		// checkScript := fmt.Sprintf("!!window.%s", variableName)
+		// Or a more complex condition:
+		// checkScript := "window.someObject && window.someObject.someProperty === 'ready'" // Ensure this returns a boolean
+
+		var exists bool // JavaScript 평가 결과를 저장할 변수 (boolean)
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-timeoutCtx.Done():
+				return fmt.Errorf("ActionFunc: timed out waiting for JavaScript condition based on variable %q: %w", variableName, timeoutCtx.Err())
+			case <-ticker.C:
+				err := chromedp.Run(timeoutCtx,
+					chromedp.Evaluate(checkScript, &exists),
+				)
+
+				if err != nil {
+					continue
+				}
+
+				if exists {
+					return nil
+				}
+			}
+		}
+	})
+}
+
 // --- Main Execution ---
 
 func main() {
-	log.Println("Chrome 브라우저를 실행하고 연결을 시도")
+	log.Printf("실행 중인 Chrome 브라우저(%s)에 연결", ChromeDevtoolsURL)
 
-	// 1. Exec Allocator 옵션 설정
-	// chromedp가 Chrome을 직접 실행하도록 설정합니다.
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", false),               // false로 설정하여 브라우저 창을 표시 (true로 바꾸면 백그라운드 실행)
-		chromedp.Flag("disable-gpu", false),            // 일부 환경에서는 true가 필요할 수 있음
-		chromedp.Flag("remote-debugging-port", "9222"), // 고정 포트 사용 (또는 0으로 설정하여 자동 선택)
-		// 필요에 따라 사용자 데이터 디렉토리 지정 (로그인 유지 등에 유용)
-		// chromedp.UserDataDir(filepath.Join(os.TempDir(), "chromedp-user-data")),
-	)
+	allocCtx, cancelAlloc := chromedp.NewRemoteAllocator(context.Background(), ChromeDevtoolsURL)
+	defer cancelAlloc()
 
-	// 2. 새로운 Exec Allocator Context 생성
-	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
-	defer cancelAlloc() // 프로그램 종료 시 할당자 컨텍스트 취소 (Chrome 프로세스 종료)
+	taskCtx, cancelTask := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
+	defer cancelTask()
 
-	// 3. 새로운 ChromeDP Context 생성 (Allocator 기반)
-	// Allocator Context를 사용하여 새 탭을 위한 Context를 만듭니다.
-	taskCtx, cancelTask := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf)) // 상세 로그 출력 설정
-	defer cancelTask()                                                                  // 작업 컨텍스트 취소
-
-	// Context 타임아웃 설정 (예: 60초)
-	taskCtx, cancelTimeout := context.WithTimeout(taskCtx, 60*time.Second)
-	defer cancelTimeout()
-
-	log.Println("Chrome 연결 성공")
 	log.Println("자동으로 코드비머 페이지로 이동합니다, 30초안에 로그인을 진행해주세요.")
 
-	GetTrackerHomePageTreeResult := ""
+	// < Step 1. 전체 구조 파싱 >
+	// 1. 코드비머 페이지로 이동
+	// 2. 30초 대기
+	// 3. /cb/ajax/getTrackerHomePageTree.spr 요청 진행하여 프로젝트 정보 받아오기
+	log.Print("[Step 1] 프로젝트 정보 파싱")
+	trackerHomePageTreeResult := ""
+
 	err := chromedp.Run(taskCtx,
-		// 대상 URL로 이동
 		chromedp.Navigate(CodebeamerHost),
-		chromedp.Sleep(30*time.Second),
+		chromedp.Sleep(5*time.Second),
 		executeFetchInPage(
 			fmt.Sprintf(GetTrackerHomePageTreeUrl, FcuProjectId),
-			createFetchOption("POST", nil),
-			&GetTrackerHomePageTreeResult,
+			createFetchOption("POST", false, nil),
+			&trackerHomePageTreeResult,
 		),
 	)
-
 	if err != nil {
-		// 타임아웃 오류인지 확인
-		if err == context.DeadlineExceeded {
-			log.Fatalf("작업 시간 초과: %v", err)
-		}
-		log.Fatalf("ChromeDP 작업 실행 중 오류 발생: %v", err)
+		log.Panicf("[Step 1] 크롬 오류 발생: %v", err)
 	}
 
-	// 5. 결과 출력
-	log.Printf("결과: %s", GetTrackerHomePageTreeResult)
+	result := []TrackerTreeResponse{}
+	if err := json.Unmarshal([]byte(trackerHomePageTreeResult), &result); err != nil {
+		log.Panicf("[Step 1] 결과 파싱 오류: %v", err)
+	}
+	log.Printf("[Step 1] 총 %d개의 노드를 프로젝트에서 가져옴: %v", len(result), lo.Map(result, func(item TrackerTreeResponse, index int) string {
+		return item.Text
+	}))
 
-	log.Println("작업 완료, Enter키를 누르면 이 프로그램과 Chrome이 종료됩니다.")
+	requirementNode, requirementNodeFound := lo.Find(result, func(item TrackerTreeResponse) bool {
+		return item.Text == FcuRequirementName
+	})
+	if !requirementNodeFound {
+		log.Panicf("[Step 1] 요구사항 노드 '%s'를 찾지 못함", FcuRequirementName)
+	}
+
+	requirementChildNodes := lo.Filter(requirementNode.Children, func(item TrackerTreeResponse, index int) bool {
+		return true
+		//return item.Icon == CodebeamerRqIconUrl
+	})
+	log.Printf("[Step 1] 요구사항 노드에서 총 %d의 하위 사양 노드 발견", len(requirementChildNodes))
+
+	// < Step 2. 각 사양문서 파싱 >
+	// 5. 각 사양 트래커 페이지로 크롬 탐색
+	// 6. 페이지에서 트리 설명 js 객체 조회
+	for _, node := range requirementChildNodes {
+		log.Printf("[Step 2] 하위 사양 노드 ID '%s' 조회 시작", node.Id)
+		trackerId, err := strconv.Atoi(node.Id)
+		if err != nil {
+			log.Printf("[Step 2] 하위 사양 노드 ID '%s'가 올바르지 않음", node.Id)
+			continue
+		}
+
+		treeConfigData := TrackerTreeResponse{}
+		err = chromedp.Run(taskCtx,
+			chromedp.Navigate(fmt.Sprintf(CodebeamerHost+TrackerPageUrl, trackerId)),
+			waitUntilJSVariableIsDefined(TreeConfigDataExpression, 10*time.Second, 1*time.Second),
+			chromedp.Evaluate(TreeConfigDataExpression, &treeConfigData),
+		)
+		if err != nil {
+			log.Printf("[Step 2] 크롬 오류 발생: %v", err)
+			continue
+		}
+		log.Printf("[Step 2] 하위 사양 노드 ID '%s' 조회 완료, 하위 노드 %d개", node.Id, len(treeConfigData.Children))
+
+		// < Step 3. 각 사양문서의 자식 파싱 >
+		var searchFunc func(*TrackerTreeResponse, *TrackerTreeResponse) (bool, error)
+		searchFunc = func(node *TrackerTreeResponse, searchResult *TrackerTreeResponse) (bool, error) {
+			lvNodeData := ""
+			err := chromedp.Run(taskCtx,
+				chromedp.Sleep(1*time.Second),
+				executeFetchInPage(
+					TreeAjaxUrl,
+					createFetchOption("POST", false, NewTrackerTreeRequest(trackerId, node.NodeId, "")),
+					&lvNodeData,
+				),
+			)
+			if err != nil {
+				log.Printf("[Step 3] 크롬 오류 발생: %v", err)
+				return false, err
+			}
+			result := []TrackerTreeResponse{}
+			if err := json.Unmarshal([]byte(lvNodeData), &result); err != nil {
+				log.Printf("[Step 3] 결과 파싱 오류: %v", err)
+				return false, err
+			}
+
+			// 일단 서버 부하가 적은 Text 비교부터 수행
+			for _, lv3Node := range result {
+				if lv3Node.Text == RequirementNodeName {
+					*searchResult = lv3Node
+					return true, nil
+				}
+			}
+
+			for _, lv3Node := range result {
+				found, _ := searchFunc(&lv3Node, searchResult)
+				if found {
+					return true, nil
+				}
+			}
+
+			return false, nil
+		}
+
+		treeConfigDataSearchResult := TrackerTreeResponse{}
+		for _, lv2Node := range treeConfigData.Children {
+			found, _ := searchFunc(&lv2Node, &treeConfigDataSearchResult)
+			if found {
+				log.Printf("[Step 2] 하위 사양 노드 ID '%s'의 RQ 검색 성공", treeConfigData.Id)
+				break
+			}
+		}
+	}
+
+	log.Println("작업 완료, Enter키를 누르면 프로그램이 종료됩니다.")
 	reader := bufio.NewReader(os.Stdin)
 	_, _ = reader.ReadString('\n')
-	log.Println(".")
 }
