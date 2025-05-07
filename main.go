@@ -215,8 +215,9 @@ func main() {
 	// 5. 각 사양 트래커 페이지로 크롬 탐색
 	// 6. 페이지에서 트리 설명 js 객체 조회
 	type logResult struct {
-		DetailRqId   string
-		DetailRqText string
+		DetailRqId string
+		DetailRq   *TreeType2Child
+		Complexity int
 	}
 	totalLogResult := []logResult{}
 
@@ -251,15 +252,13 @@ func main() {
 
 		// < Step 4. 각 상세 사양 문서의 복잡도 계산 >
 		for _, detailRq := range findResult {
-			if strings.HasPrefix(detailRq.Text, "%%") {
-				continue
-			}
+			complexity := getComplexityOfDetailRQ(taskCtx, trackerId, detailRq)
+			log.Printf("[Step 4] 상세 사양 문서 ID=%d의 복잡도=%d", detailRq.NodeId, complexity)
 			totalLogResult = append(totalLogResult, logResult{
-				DetailRqId:   detailRq.Id,
-				DetailRqText: detailRq.Text,
+				DetailRqId: detailRq.Id,
+				DetailRq:   detailRq,
+				Complexity: complexity,
 			})
-			issueLinkCount := strings.Count(detailRq.Text, "[ISSUE:")
-			log.Printf("[Step 4] 상세 사양 문서 ID=%d의 복잡도=%d", detailRq.NodeId, issueLinkCount)
 		}
 	}
 
@@ -274,6 +273,39 @@ func main() {
 	log.Println("작업 완료, Enter키를 누르면 프로그램이 종료됩니다.")
 	reader := bufio.NewReader(os.Stdin)
 	_, _ = reader.ReadString('\n')
+}
+
+func getComplexityOfDetailRQ(chromeCtx context.Context, trackerId int, detailRQ *TreeType2Child) int {
+	log.Printf("[getComplexityOfDetailRQ] 상세 사양 탐색 시작작, 문서 ID=%s", detailRQ.Id)
+
+	drqContent := ""
+	err := chromedp.Run(chromeCtx,
+		chromedp.Sleep(300*time.Millisecond),
+		executeFetchInPage(
+			TreeAjaxUrl,
+			createFetchOption("POST", false, NewTrackerTreeRequest(trackerId, detailRQ.NodeId, "")),
+			&drqContent,
+		),
+	)
+	if err != nil {
+		log.Printf("[recursiveFindDoc] 크롬 오류: %v", err)
+		return 0
+	}
+	drqElements := []TreeType3Child{}
+	if err := json.Unmarshal([]byte(drqContent), &drqElements); err != nil {
+		log.Printf("[recursiveFindDoc] 파싱 오류: %v", err)
+		return 0
+	}
+
+	ret := 0
+	for _, element := range drqElements {
+		if element.ListAttr.IconBgColor == "#ababab" {
+			continue
+		}
+		ret += strings.Count(element.Text, "[ISSUE:")
+	}
+
+	return ret
 }
 
 func recursiveFindDoc(chromeCtx context.Context, trackerId int, doc *TreeType2Child, result *[]*TreeType2Child) bool {

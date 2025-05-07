@@ -41,6 +41,22 @@ type (
 		NodeId      int    `json:"nodeId"`
 		Url         string `json:"url"`
 	}
+
+	TreeType3Child struct {
+		Id          string        `json:"id"`
+		Title       string        `json:"title"`
+		Text        string        `json:"text"`
+		Level       int           `json:"level"`
+		HasChildren bool          `json:"hasChildren"`
+		Children    []interface{} `json:"children"`
+		Icon        string        `json:"icon"`
+		TrackerId   int           `json:"trakerId"`
+		NodeId      int           `json:"nodeId"`
+		Url         string        `json:"url"`
+		ListAttr    struct {
+			IconBgColor string `json:"iconBgColor"`
+		} `json:"li_attr"`
+	}
 )
 
 func NewTrackerTreeRequest(trackerId int, nodeId int, openNodes string) map[string]interface{} {
