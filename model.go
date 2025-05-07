@@ -3,17 +3,43 @@ package main
 import "fmt"
 
 type (
-	TrackerTreeResponse struct {
-		Id          string                `json:"id"`
-		Title       string                `json:"title"`
-		Text        string                `json:"text"`
-		Level       int                   `json:"level"`
-		HasChildren bool                  `json:"hasChildren"`
-		Children    []TrackerTreeResponse `json:"children"`
-		Icon        string                `json:"json"`
-		TrackerId   int                   `json:"trakerId"`
-		NodeId      int                   `json:"nodeId"`
-		Url         string                `json:"url"`
+	TreeType1Response struct {
+		Id          string              `json:"id"`
+		Title       string              `json:"title"`
+		Text        string              `json:"text"`
+		Level       int                 `json:"level"`
+		HasChildren bool                `json:"hasChildren"`
+		Children    []TreeType1Response `json:"children"`
+		Icon        string              `json:"icon"`
+		TrackerId   int                 `json:"trakerId"`
+		NodeId      int                 `json:"nodeId"`
+		Url         string              `json:"url"`
+	}
+
+	TreeType2Response struct {
+		Id          string           `json:"id"`
+		Title       string           `json:"title"`
+		Text        string           `json:"text"`
+		Level       int              `json:"level"`
+		HasChildren bool             `json:"hasChildren"`
+		Children    []TreeType2Child `json:"children"`
+		Icon        string           `json:"icon"`
+		TrackerId   int              `json:"trakerId"`
+		NodeId      int              `json:"nodeId"`
+		Url         string           `json:"url"`
+	}
+
+	TreeType2Child struct {
+		Id          string `json:"id"`
+		Title       string `json:"title"`
+		Text        string `json:"text"`
+		Level       int    `json:"level"`
+		HasChildren bool   `json:"hasChildren"`
+		Children    bool   `json:"children"`
+		Icon        string `json:"icon"`
+		TrackerId   int    `json:"trakerId"`
+		NodeId      int    `json:"nodeId"`
+		Url         string `json:"url"`
 	}
 )
 

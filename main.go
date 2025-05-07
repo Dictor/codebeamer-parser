@@ -191,22 +191,22 @@ func main() {
 		log.Panicf("[Step 1] 크롬 오류 발생: %v", err)
 	}
 
-	result := []TrackerTreeResponse{}
+	result := []TreeType1Response{}
 	if err := json.Unmarshal([]byte(trackerHomePageTreeResult), &result); err != nil {
 		log.Panicf("[Step 1] 결과 파싱 오류: %v", err)
 	}
-	log.Printf("[Step 1] 총 %d개의 노드를 프로젝트에서 가져옴: %v", len(result), lo.Map(result, func(item TrackerTreeResponse, index int) string {
+	log.Printf("[Step 1] 총 %d개의 노드를 프로젝트에서 가져옴: %v", len(result), lo.Map(result, func(item TreeType1Response, index int) string {
 		return item.Text
 	}))
 
-	requirementRoot, requirementRootFound := lo.Find(result, func(item TrackerTreeResponse) bool {
+	requirementRoot, requirementRootFound := lo.Find(result, func(item TreeType1Response) bool {
 		return item.Text == FcuRequirementName
 	})
 	if !requirementRootFound {
 		log.Panicf("[Step 1] 요구사항 루트 노드 '%s'를 찾지 못함", FcuRequirementName)
 	}
 
-	requirementNodes := lo.Filter(requirementRoot.Children, func(item TrackerTreeResponse, index int) bool {
+	requirementNodes := lo.Filter(requirementRoot.Children, func(item TreeType1Response, index int) bool {
 		return item.Icon == CodebeamerRqIconUrl
 	})
 	log.Printf("[Step 1] 요구사항 루트 노드에서 총 %d의 사양 노드 발견", len(requirementNodes))
@@ -222,7 +222,7 @@ func main() {
 			continue
 		}
 
-		treeConfigData := TrackerTreeResponse{}
+		treeConfigData := TreeType2Response{}
 		err = chromedp.Run(taskCtx,
 			chromedp.Navigate(fmt.Sprintf(CodebeamerHost+TrackerPageUrl, trackerId)),
 			waitUntilJSVariableIsDefined(TreeConfigDataExpression, 10*time.Second, 1*time.Second),
@@ -232,10 +232,11 @@ func main() {
 			log.Printf("[Step 2] 크롬 오류 발생: %v", err)
 			continue
 		}
+
 		log.Printf("[Step 2] 사양 노드 ID '%s' 조회 완료, 하위 문서 %d개", node.Id, len(treeConfigData.Children))
 
 		// < Step 3. 각 사양 노드의 하위 문서 파싱 >
-		findResult := []*TrackerTreeResponse{}
+		findResult := []*TreeType2Child{}
 		for _, doc := range treeConfigData.Children {
 			time.Sleep(time.Second)
 			recursiveFindDoc(taskCtx, trackerId, &doc, &findResult)
@@ -258,7 +259,7 @@ func main() {
 	_, _ = reader.ReadString('\n')
 }
 
-func recursiveFindDoc(chromeCtx context.Context, trackerId int, doc *TrackerTreeResponse, result *[]*TrackerTreeResponse) bool {
+func recursiveFindDoc(chromeCtx context.Context, trackerId int, doc *TreeType2Child, result *[]*TreeType2Child) bool {
 	log.Printf("[recursiveFindDoc] 문서 탐색 시작, 문서 ID=%s", doc.Id)
 
 	docContent := ""
@@ -274,7 +275,7 @@ func recursiveFindDoc(chromeCtx context.Context, trackerId int, doc *TrackerTree
 		log.Printf("[recursiveFindDoc] 크롬 오류: %v", err)
 		return false
 	}
-	docElements := []TrackerTreeResponse{}
+	docElements := []TreeType2Child{}
 	if err := json.Unmarshal([]byte(docContent), &docElements); err != nil {
 		log.Printf("[recursiveFindDoc] 파싱 오류: %v", err)
 		return false
@@ -291,7 +292,7 @@ func recursiveFindDoc(chromeCtx context.Context, trackerId int, doc *TrackerTree
 
 	for _, element := range docElements {
 		time.Sleep(time.Second)
-		if recursiveFindDoc(chromeCtx, trackerId, &element, result) == true {
+		if recursiveFindDoc(chromeCtx, trackerId, &element, result) {
 			return true
 		}
 	}
