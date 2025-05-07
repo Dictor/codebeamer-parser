@@ -52,13 +52,13 @@ func createFetchOption(httpMethod string, isJson bool, body map[string]interface
 		"mode":        "cors",
 		"cache":       "default",
 		"credentials": "include",
-		"header":      map[string]string{},
+		"headers":     map[string]string{},
 		"body":        string(reqBody),
 	}
 	if isJson {
-		req["header"].(map[string]string)["Content-Type"] = "application/json; charset=UTF-8"
+		req["headers"].(map[string]string)["Content-Type"] = "application/json; charset=UTF-8"
 	} else {
-		req["header"].(map[string]string)["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+		req["headers"].(map[string]string)["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
 	}
 	return req
 }
@@ -214,6 +214,12 @@ func main() {
 	// < Step 2. 각 사양 노드 파싱 >
 	// 5. 각 사양 트래커 페이지로 크롬 탐색
 	// 6. 페이지에서 트리 설명 js 객체 조회
+	type logResult struct {
+		DetailRqId   string
+		DetailRqText string
+	}
+	totalLogResult := []logResult{}
+
 	for _, node := range requirementNodes {
 		log.Printf("[Step 2] 사양 노드 ID '%s' 조회 시작", node.Id)
 		trackerId, err := strconv.Atoi(node.Id)
@@ -238,7 +244,7 @@ func main() {
 		// < Step 3. 각 사양 노드의 하위 문서 파싱 >
 		findResult := []*TreeType2Child{}
 		for _, doc := range treeConfigData.Children {
-			time.Sleep(time.Second)
+			time.Sleep(300 * time.Millisecond)
 			recursiveFindDoc(taskCtx, trackerId, &doc, &findResult)
 		}
 		log.Printf("[Step 3] 총 %d개의 상세 사양 문서 찾음", len(findResult))
@@ -248,10 +254,21 @@ func main() {
 			if strings.HasPrefix(detailRq.Text, "%%") {
 				continue
 			}
+			totalLogResult = append(totalLogResult, logResult{
+				DetailRqId:   detailRq.Id,
+				DetailRqText: detailRq.Text,
+			})
 			issueLinkCount := strings.Count(detailRq.Text, "[ISSUE:")
 			log.Printf("[Step 4] 상세 사양 문서 ID=%d의 복잡도=%d", detailRq.NodeId, issueLinkCount)
-
 		}
+	}
+
+	tlog, err := json.Marshal(totalLogResult)
+	if err != nil {
+		panic(err)
+	}
+	if err := os.WriteFile("result.json", tlog, 0777); err != nil {
+		panic(err)
 	}
 
 	log.Println("작업 완료, Enter키를 누르면 프로그램이 종료됩니다.")
@@ -264,7 +281,7 @@ func recursiveFindDoc(chromeCtx context.Context, trackerId int, doc *TreeType2Ch
 
 	docContent := ""
 	err := chromedp.Run(chromeCtx,
-		chromedp.Sleep(1*time.Second),
+		chromedp.Sleep(300*time.Millisecond),
 		executeFetchInPage(
 			TreeAjaxUrl,
 			createFetchOption("POST", false, NewTrackerTreeRequest(trackerId, doc.NodeId, "")),
