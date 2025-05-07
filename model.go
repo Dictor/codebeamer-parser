@@ -22,6 +22,7 @@ func NewTrackerTreeRequest(trackerId int, nodeId int, openNodes string) map[stri
 		"project_id":             FcuProjectId,
 		"type":                   "",
 		"tracker_id":             trackerId,
+		"trackerId":              trackerId, // 실제 요청에서 이렇게 두개가 중복으로 있음
 		"revision":               "",
 		"view_id":                -11,
 		"useOutlineCache":        true,

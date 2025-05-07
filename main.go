@@ -63,20 +63,6 @@ func createFetchOption(httpMethod string, isJson bool, body map[string]interface
 	return req
 }
 
-// getElementTextBySelector는 주어진 CSS 선택자에 해당하는 첫 번째 요소의 텍스트 내용을 가져옵니다.
-// selector: 대상 요소를 찾는 CSS 선택자 문자열.
-// textContent: 가져온 텍스트 내용을 저장할 문자열 포인터.
-func getElementTextBySelector(selector string, textContent *string) chromedp.Action {
-	log.Printf("CSS 선택자 '%s'로 요소 텍스트 가져오기 시도 중...", selector)
-	// chromedp.Text는 지정된 선택자에 해당하는 첫 번째 요소의 텍스트를 가져옵니다.
-	// chromedp.ByQuery는 CSS 선택자를 사용하여 요소를 찾도록 지정합니다.
-	// chromedp.NodeVisible은 요소가 화면에 보일 때까지 기다립니다 (선택 사항이지만 유용함).
-	return chromedp.Tasks{
-		chromedp.WaitVisible(selector, chromedp.ByQuery),
-		chromedp.Text(selector, textContent, chromedp.ByQuery),
-	}
-}
-
 // executeFetchInPage는 페이지 컨텍스트 내에서 JavaScript fetch API를 실행하고 결과를 가져옵니다.
 // fetchURL: fetch 요청을 보낼 URL.
 // options: fetch 요청에 사용할 옵션 (method, headers, body 등). nil이면 기본 GET 요청.
@@ -213,27 +199,26 @@ func main() {
 		return item.Text
 	}))
 
-	requirementNode, requirementNodeFound := lo.Find(result, func(item TrackerTreeResponse) bool {
+	requirementRoot, requirementRootFound := lo.Find(result, func(item TrackerTreeResponse) bool {
 		return item.Text == FcuRequirementName
 	})
-	if !requirementNodeFound {
-		log.Panicf("[Step 1] 요구사항 노드 '%s'를 찾지 못함", FcuRequirementName)
+	if !requirementRootFound {
+		log.Panicf("[Step 1] 요구사항 루트 노드 '%s'를 찾지 못함", FcuRequirementName)
 	}
 
-	requirementChildNodes := lo.Filter(requirementNode.Children, func(item TrackerTreeResponse, index int) bool {
-		return true
-		//return item.Icon == CodebeamerRqIconUrl
+	requirementNodes := lo.Filter(requirementRoot.Children, func(item TrackerTreeResponse, index int) bool {
+		return item.Icon == CodebeamerRqIconUrl
 	})
-	log.Printf("[Step 1] 요구사항 노드에서 총 %d의 하위 사양 노드 발견", len(requirementChildNodes))
+	log.Printf("[Step 1] 요구사항 루트 노드에서 총 %d의 사양 노드 발견", len(requirementNodes))
 
-	// < Step 2. 각 사양문서 파싱 >
+	// < Step 2. 각 사양 노드 파싱 >
 	// 5. 각 사양 트래커 페이지로 크롬 탐색
 	// 6. 페이지에서 트리 설명 js 객체 조회
-	for _, node := range requirementChildNodes {
-		log.Printf("[Step 2] 하위 사양 노드 ID '%s' 조회 시작", node.Id)
+	for _, node := range requirementNodes {
+		log.Printf("[Step 2] 사양 노드 ID '%s' 조회 시작", node.Id)
 		trackerId, err := strconv.Atoi(node.Id)
 		if err != nil {
-			log.Printf("[Step 2] 하위 사양 노드 ID '%s'가 올바르지 않음", node.Id)
+			log.Printf("[Step 2] 사양 노드 ID '%s'가 올바르지 않음", node.Id)
 			continue
 		}
 
@@ -247,61 +232,70 @@ func main() {
 			log.Printf("[Step 2] 크롬 오류 발생: %v", err)
 			continue
 		}
-		log.Printf("[Step 2] 하위 사양 노드 ID '%s' 조회 완료, 하위 노드 %d개", node.Id, len(treeConfigData.Children))
+		log.Printf("[Step 2] 사양 노드 ID '%s' 조회 완료, 하위 문서 %d개", node.Id, len(treeConfigData.Children))
 
-		// < Step 3. 각 사양문서의 자식 파싱 >
-		var searchFunc func(*TrackerTreeResponse, *TrackerTreeResponse) (bool, error)
-		searchFunc = func(node *TrackerTreeResponse, searchResult *TrackerTreeResponse) (bool, error) {
-			log.Printf("[Step 3] 탐색 ID: %s", node.Id)
-			lvNodeData := ""
-			err := chromedp.Run(taskCtx,
-				chromedp.Sleep(1*time.Second),
-				executeFetchInPage(
-					TreeAjaxUrl,
-					createFetchOption("POST", false, NewTrackerTreeRequest(trackerId, node.NodeId, "")),
-					&lvNodeData,
-				),
-			)
-			if err != nil {
-				log.Printf("[Step 3] 크롬 오류 발생: %v", err)
-				return false, err
-			}
-			result := []TrackerTreeResponse{}
-			if err := json.Unmarshal([]byte(lvNodeData), &result); err != nil {
-				log.Printf("[Step 3] 결과 파싱 오류: %v", err)
-				return false, err
-			}
-
-			// 일단 서버 부하가 적은 Text 비교부터 수행
-			for _, lv3Node := range result {
-				if lv3Node.Text == RequirementNodeName {
-					*searchResult = lv3Node
-					return true, nil
-				}
-			}
-
-			for _, lv3Node := range result {
-				found, _ := searchFunc(&lv3Node, searchResult)
-				if found {
-					return true, nil
-				}
-			}
-
-			return false, nil
+		// < Step 3. 각 사양 노드의 하위 문서 파싱 >
+		findResult := []*TrackerTreeResponse{}
+		for _, doc := range treeConfigData.Children {
+			time.Sleep(time.Second)
+			recursiveFindDoc(taskCtx, trackerId, &doc, &findResult)
 		}
+		log.Printf("[Step 3] 총 %d개의 상세 사양 문서 찾음", len(findResult))
 
-		treeConfigDataSearchResult := TrackerTreeResponse{}
-		for _, lv2Node := range treeConfigData.Children {
-			found, _ := searchFunc(&lv2Node, &treeConfigDataSearchResult)
-			if found {
-				log.Printf("[Step 3] 하위 사양 노드 ID '%s'의 RQ 검색 성공", treeConfigData.Id)
-				log.Printf("[Step 3] RQ ID '%s'의 복잡도 = %d", treeConfigDataSearchResult.Id, strings.Count(treeConfigDataSearchResult.Text, "[ISSUE:"))
-				break
+		// < Step 4. 각 상세 사양 문서의 복잡도 계산 >
+		for _, detailRq := range findResult {
+			if strings.HasPrefix(detailRq.Text, "%%") {
+				continue
 			}
+			issueLinkCount := strings.Count(detailRq.Text, "[ISSUE:")
+			log.Printf("[Step 4] 상세 사양 문서 ID=%d의 복잡도=%d", detailRq.NodeId, issueLinkCount)
+
 		}
 	}
 
 	log.Println("작업 완료, Enter키를 누르면 프로그램이 종료됩니다.")
 	reader := bufio.NewReader(os.Stdin)
 	_, _ = reader.ReadString('\n')
+}
+
+func recursiveFindDoc(chromeCtx context.Context, trackerId int, doc *TrackerTreeResponse, result *[]*TrackerTreeResponse) bool {
+	log.Printf("[recursiveFindDoc] 문서 탐색 시작, 문서 ID=%s", doc.Id)
+
+	docContent := ""
+	err := chromedp.Run(chromeCtx,
+		chromedp.Sleep(1*time.Second),
+		executeFetchInPage(
+			TreeAjaxUrl,
+			createFetchOption("POST", false, NewTrackerTreeRequest(trackerId, doc.NodeId, "")),
+			&docContent,
+		),
+	)
+	if err != nil {
+		log.Printf("[recursiveFindDoc] 크롬 오류: %v", err)
+		return false
+	}
+	docElements := []TrackerTreeResponse{}
+	if err := json.Unmarshal([]byte(docContent), &docElements); err != nil {
+		log.Printf("[recursiveFindDoc] 파싱 오류: %v", err)
+		return false
+	}
+
+	// 일단 서버 부하가 적은 Text 비교부터 수행
+	for _, element := range docElements {
+		if element.Text == RequirementNodeName {
+			log.Printf("[recursiveFindDoc] RQ 요소 탐색 성공, 문서 ID=%s의 하위 요소 ID=%s", doc.Id, element.Id)
+			*result = append(*result, &element)
+			return true // 상세 사양을 찾았으면 해당 doc에 대해서 더 이상 찾지 않아도 됨
+		}
+	}
+
+	for _, element := range docElements {
+		time.Sleep(time.Second)
+		if recursiveFindDoc(chromeCtx, trackerId, &element, result) == true {
+			return true
+		}
+	}
+
+	log.Printf("[recursiveFindDoc] 문서 탐색 종료, 문서 ID=%s", doc.Id)
+	return false
 }
