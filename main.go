@@ -246,7 +246,7 @@ func main() {
 		findResult := []*TreeType2Child{}
 		for _, doc := range treeConfigData.Children {
 			time.Sleep(300 * time.Millisecond)
-			recursiveFindDoc(taskCtx, trackerId, &doc, &findResult)
+			recursiveFindDoc(taskCtx, trackerId, &doc, &findResult, "")
 		}
 		log.Printf("[Step 3] 총 %d개의 상세 사양 문서 찾음", len(findResult))
 
@@ -276,7 +276,7 @@ func main() {
 }
 
 func getComplexityOfDetailRQ(chromeCtx context.Context, trackerId int, detailRQ *TreeType2Child) int {
-	log.Printf("[getComplexityOfDetailRQ] 상세 사양 탐색 시작작, 문서 ID=%s", detailRQ.Id)
+	log.Printf("[getComplexityOfDetailRQ] 상세 사양 탐색 시작, 문서 ID=%s", detailRQ.Id)
 
 	drqContent := ""
 	err := chromedp.Run(chromeCtx,
@@ -288,12 +288,12 @@ func getComplexityOfDetailRQ(chromeCtx context.Context, trackerId int, detailRQ 
 		),
 	)
 	if err != nil {
-		log.Printf("[recursiveFindDoc] 크롬 오류: %v", err)
+		log.Printf("[getComplexityOfDetailRQ] 크롬 오류: %v", err)
 		return 0
 	}
 	drqElements := []TreeType3Child{}
 	if err := json.Unmarshal([]byte(drqContent), &drqElements); err != nil {
-		log.Printf("[recursiveFindDoc] 파싱 오류: %v", err)
+		log.Printf("[getComplexityOfDetailRQ] 파싱 오류: %v", err)
 		return 0
 	}
 
@@ -308,7 +308,7 @@ func getComplexityOfDetailRQ(chromeCtx context.Context, trackerId int, detailRQ 
 	return ret
 }
 
-func recursiveFindDoc(chromeCtx context.Context, trackerId int, doc *TreeType2Child, result *[]*TreeType2Child) bool {
+func recursiveFindDoc(chromeCtx context.Context, trackerId int, doc *TreeType2Child, result *[]*TreeType2Child, layerText string) bool {
 	log.Printf("[recursiveFindDoc] 문서 탐색 시작, 문서 ID=%s", doc.Id)
 
 	docContent := ""
@@ -334,6 +334,7 @@ func recursiveFindDoc(chromeCtx context.Context, trackerId int, doc *TreeType2Ch
 	for _, element := range docElements {
 		if element.Text == RequirementNodeName {
 			log.Printf("[recursiveFindDoc] RQ 요소 탐색 성공, 문서 ID=%s의 하위 요소 ID=%s", doc.Id, element.Id)
+			element.LayerText = layerText + " > " + element.Text
 			*result = append(*result, &element)
 			return true // 상세 사양을 찾았으면 해당 doc에 대해서 더 이상 찾지 않아도 됨
 		}
@@ -341,7 +342,7 @@ func recursiveFindDoc(chromeCtx context.Context, trackerId int, doc *TreeType2Ch
 
 	for _, element := range docElements {
 		time.Sleep(time.Second)
-		if recursiveFindDoc(chromeCtx, trackerId, &element, result) {
+		if recursiveFindDoc(chromeCtx, trackerId, &element, result, layerText+" > "+doc.Text) {
 			return true
 		}
 	}

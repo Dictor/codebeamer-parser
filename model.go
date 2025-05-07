@@ -40,6 +40,7 @@ type (
 		TrackerId   int    `json:"trakerId"`
 		NodeId      int    `json:"nodeId"`
 		Url         string `json:"url"`
+		LayerText   string `json:"layerText"`
 	}
 
 	TreeType3Child struct {
