@@ -4,6 +4,7 @@ import (
 	"context" // JSON 처리를 위해 추가
 	"flag"
 	"log" // os.Executable 사용 위해 추가
+	"os"
 	"strconv"
 
 	// 경로 조작 위해 추가
@@ -12,27 +13,38 @@ import (
 	"github.com/chromedp/chromedp"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+
+	"github.com/goccy/go-graphviz"
 )
 
 var Logger *logrus.Logger = logrus.New()
 
 func main() {
+	// flag
 	debugLog := false
 	flag.BoolVar(&debugLog, "debug", false, "print debug log")
 	flag.Parse()
 
+	// logger setting
 	if debugLog {
 		Logger.SetLevel(logrus.DebugLevel)
 	}
 	Logger.SetFormatter(&logrus.TextFormatter{})
 
+	// graphviz setting
+	g := lo.Must(graphviz.New(context.Background()))
+	defer g.Close()
+	graph := lo.Must(g.Graph())
+	defer graph.Close()
+
+	// init chrome
 	Logger.Info("init chrome connection")
 	allocCtx, cancelAlloc := chromedp.NewRemoteAllocator(context.Background(), ChromeDevtoolsURL)
 	defer cancelAlloc()
-
 	taskCtx, cancelTask := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
 	defer cancelTask()
 
+	// navigate chrome for login
 	Logger.Info("browser will be navigated to codebeamer page, please login until 10 sec")
 	lo.Must0(
 		chromedp.Run(taskCtx,
@@ -41,8 +53,11 @@ func main() {
 		),
 	)
 
-	Logger.Info("start find tracker")
+	// find root tracker
+	Logger.Info("start to find tracker")
 	rootTracker := lo.Must1(FindRootTrackerByName(taskCtx, FcuProjectId, FcuRequirementName))
+
+	// check sub-root tracker
 	vaildChildTracker := []*TrackerNode{}
 	for _, childTracker := range rootTracker.Children {
 		time.Sleep(300 * time.Millisecond)
@@ -54,15 +69,41 @@ func main() {
 	}
 	Logger.WithField("count", len(vaildChildTracker)).Info("complete to find tracker")
 
-	Logger.Info("start find issue")
+	Logger.Info("start to find issue")
 	for _, childTracker := range vaildChildTracker {
 		for _, childIssue := range childTracker.Children {
 			time.Sleep(300 * time.Millisecond)
 			RecursiveFillIssueChild(taskCtx, childIssue, strconv.Itoa(childTracker.TrackerId), 300*time.Millisecond)
 		}
 	}
-	Logger.Info("complete to issue")
+	Logger.Info("complete to find issue")
 
+	Logger.Info("start to construct graph")
+	gRootTracker := lo.Must(graph.CreateNodeByName(rootTracker.Text))
+	for _, childTracker := range vaildChildTracker {
+		gChildTracker := lo.Must(graph.CreateNodeByName(childTracker.Text))
+		graph.CreateEdgeByName("", gRootTracker, gChildTracker)
+	}
+	var recursiveIssueGraph func(*IssueNode)
+	recursiveIssueGraph = func(issue *IssueNode) {
+		gIssue := lo.Must(graph.CreateNodeByName(issue.Text))
+		for _, childIssue := range issue.RealChildren {
+			gChildIssue := lo.Must(graph.CreateNodeByName(childIssue.Text))
+			graph.CreateEdgeByName("", gIssue, gChildIssue)
+			recursiveIssueGraph(childIssue)
+		}
+	}
+	for _, childTracker := range vaildChildTracker {
+		for _, childIssue := range childTracker.Children {
+			recursiveIssueGraph(childIssue)
+		}
+	}
+
+	ctx := context.Background()
+	file := lo.Must(os.OpenFile("graph.svg", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666))
+	defer file.Close()
+	lo.Must0(g.Render(ctx, graph, graphviz.SVG, file))
+	Logger.Info("complete to construct graph")
 	return
 	/*
 
