@@ -2,8 +2,8 @@ package main
 
 const (
 	ChromeDevtoolsURL         string = "ws://127.0.0.1:9222/devtools/browser"
-	GetTrackerHomePageTreeUrl string = "/cb/ajax/getTrackerHomePageTree.spr?proj_id=%d"
-	TrackerPageUrl            string = "/cb/tracker/%d"
+	GetTrackerHomePageTreeUrl string = "/cb/ajax/getTrackerHomePageTree.spr?proj_id=%s"
+	TrackerPageUrl            string = "/cb/tracker/%s"
 	TreeAjaxUrl               string = "/cb/trackers/ajax/tree.spr"
 
 	// user variant setting

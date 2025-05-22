@@ -16,5 +16,6 @@ require (
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/samber/lo v1.50.0
+	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/sys v0.29.0 // indirect
 )

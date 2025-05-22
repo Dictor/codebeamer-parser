@@ -1,8 +1,40 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type (
+	Tracker struct {
+		Id        string `json:"id"`
+		TrackerId int    `json:"trackerId"`
+		Title     string `json:"title"`
+		Text      string `json:"text"`
+		Icon      string `json:"icon"`
+		Url       string `json:"url"`
+	}
+
+	RootTrackerNode struct {
+		Tracker
+		Children []*TrackerNode `json:"children"`
+	}
+
+	TrackerNode struct {
+		Tracker
+		Children []*IssueNode `json:"children"`
+	}
+
+	IssueNode struct {
+		Id           string       `json:"id"`
+		Title        string       `json:"title"`
+		Text         string       `json:"text"`
+		Icon         string       `json:"icon"`
+		Url          string       `json:"url"`
+		Children     interface{}  `json:"children"`
+		HasChildren  bool         `json:"-"`
+		RealChildren []*IssueNode `json:"-"`
+	}
+
 	TreeType1Response struct {
 		Id          string              `json:"id"`
 		Title       string              `json:"title"`
@@ -60,7 +92,7 @@ type (
 	}
 )
 
-func NewTrackerTreeRequest(trackerId int, nodeId int, openNodes string) map[string]interface{} {
+func NewTrackerTreeRequest(trackerId string, nodeId string, openNodes string) map[string]interface{} {
 	return map[string]interface{}{
 		"project_id":             FcuProjectId,
 		"type":                   "",
@@ -74,10 +106,28 @@ func NewTrackerTreeRequest(trackerId int, nodeId int, openNodes string) map[stri
 		"dateFilters":            []interface{}{},
 		"suspectedFilters":       []interface{}{},
 		"statusFilters":          []interface{}{},
-		"cbQL":                   fmt.Sprintf("project.id IN (%d) AND tracker.id IN (%d)", FcuProjectId, trackerId),
+		"cbQL":                   fmt.Sprintf("project.id IN (%s) AND tracker.id IN (%s)", FcuProjectId, trackerId),
 		"baselineModeBaselineId": "",
 		"showAncestorItems":      true,
 		"showDescendantItems":    false,
 		"openNodes":              openNodes,
+	}
+}
+
+func (i *IssueNode) AssertChild() {
+	i.HasChildren = false
+	if i.Children == nil {
+		return
+	}
+
+	switch v := i.Children.(type) {
+	case bool:
+		if v {
+			i.HasChildren = true
+		}
+	case []interface{}:
+		return
+	default:
+		return
 	}
 }
