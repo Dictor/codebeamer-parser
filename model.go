@@ -26,14 +26,14 @@ type (
 	}
 
 	IssueNode struct {
-		Id           string       `json:"id"`
-		Title        string       `json:"title"`
-		Text         string       `json:"text"`
-		Icon         string       `json:"icon"`
-		Url          string       `json:"url"`
-		Children     interface{}  `json:"children"`
-		HasChildren  bool         `json:"-"`
-		RealChildren []*IssueNode `json:"-"`
+		Id           string      `json:"id"`
+		Title        string      `json:"title"`
+		Text         string      `json:"text"`
+		Icon         string      `json:"icon"`
+		Url          string      `json:"url"`
+		Children     interface{} `json:"children"`
+		HasChildren  bool
+		RealChildren []*IssueNode
 	}
 
 	TreeType1Response struct {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context" // JSON 처리를 위해 추가
+	"encoding/json"
 	"flag"
 	"html"
 	"log" // os.Executable 사용 위해 추가
@@ -120,6 +121,9 @@ func main() {
 	}
 	Logger.Info("complete to construct graph")
 
+	// save parse result
+	resultJson := lo.Must(json.MarshalIndent(rootTracker, "", "  "))
+	lo.Must0(os.WriteFile("result.json", resultJson, 0666))
 	/*
 
 
