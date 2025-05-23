@@ -21,7 +21,8 @@ type (
 
 	TrackerNode struct {
 		Tracker
-		Children []*IssueNode `json:"children"`
+		Children  []*IssueNode `json:"children"`
+		GraphNode interface{}  `json:"-"`
 	}
 
 	IssueNode struct {

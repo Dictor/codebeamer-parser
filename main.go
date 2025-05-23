@@ -3,9 +3,12 @@ package main
 import (
 	"context" // JSON 처리를 위해 추가
 	"flag"
+	"html"
 	"log" // os.Executable 사용 위해 추가
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 
 	// 경로 조작 위해 추가
 	"time"
@@ -15,14 +18,16 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/goccy/go-graphviz"
+	"github.com/goccy/go-graphviz/cgraph"
 )
 
 var Logger *logrus.Logger = logrus.New()
 
 func main() {
 	// flag
-	debugLog := false
+	var debugLog, saveGraph bool
 	flag.BoolVar(&debugLog, "debug", false, "print debug log")
+	flag.BoolVar(&saveGraph, "graph", false, "save graph image")
 	flag.Parse()
 
 	// logger setting
@@ -69,6 +74,7 @@ func main() {
 	}
 	Logger.WithField("count", len(vaildChildTracker)).Info("complete to find tracker")
 
+	// check issue
 	Logger.Info("start to find issue")
 	for _, childTracker := range vaildChildTracker {
 		for _, childIssue := range childTracker.Children {
@@ -78,33 +84,42 @@ func main() {
 	}
 	Logger.Info("complete to find issue")
 
+	// construct graph
 	Logger.Info("start to construct graph")
-	gRootTracker := lo.Must(graph.CreateNodeByName(rootTracker.Text))
+	gRootTracker := lo.Must(graph.CreateNodeByName(EscapeDotString(rootTracker.Text)))
 	for _, childTracker := range vaildChildTracker {
-		gChildTracker := lo.Must(graph.CreateNodeByName(childTracker.Text))
+		gChildTracker := lo.Must(graph.CreateNodeByName(EscapeDotString(childTracker.Text)))
 		graph.CreateEdgeByName("", gRootTracker, gChildTracker)
+		childTracker.GraphNode = gChildTracker
 	}
-	var recursiveIssueGraph func(*IssueNode)
-	recursiveIssueGraph = func(issue *IssueNode) {
-		gIssue := lo.Must(graph.CreateNodeByName(issue.Text))
+
+	var recursiveIssueGraph func(*IssueNode) *cgraph.Node
+	recursiveIssueGraph = func(issue *IssueNode) *cgraph.Node {
+		gIssue := lo.Must(graph.CreateNodeByName(EscapeDotString(issue.Text)))
 		for _, childIssue := range issue.RealChildren {
-			gChildIssue := lo.Must(graph.CreateNodeByName(childIssue.Text))
+			gChildIssue := lo.Must(graph.CreateNodeByName(EscapeDotString(childIssue.Text)))
 			graph.CreateEdgeByName("", gIssue, gChildIssue)
 			recursiveIssueGraph(childIssue)
 		}
+		return gIssue
 	}
+
 	for _, childTracker := range vaildChildTracker {
 		for _, childIssue := range childTracker.Children {
 			recursiveIssueGraph(childIssue)
+			graph.CreateEdgeByName("", childTracker.GraphNode.(*cgraph.Node), recursiveIssueGraph(childIssue))
 		}
 	}
 
-	ctx := context.Background()
-	file := lo.Must(os.OpenFile("graph.svg", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666))
-	defer file.Close()
-	lo.Must0(g.Render(ctx, graph, graphviz.SVG, file))
+	// save graph to image
+	if saveGraph {
+		ctx := context.Background()
+		file := lo.Must(os.OpenFile("graph.svg", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666))
+		defer file.Close()
+		lo.Must0(g.Render(ctx, graph, graphviz.SVG, file))
+	}
 	Logger.Info("complete to construct graph")
-	return
+
 	/*
 
 
@@ -156,3 +171,11 @@ func getComplexityOfDetailRQ(chromeCtx context.Context, trackerId int, detailRQ 
 	return ret
 }
 */
+
+func EscapeDotString(s string) string {
+	var cleanHTMLRegex = regexp.MustCompile("<[^>]*>")
+	processedString := html.UnescapeString(s)
+	processedString = cleanHTMLRegex.ReplaceAllString(processedString, "")
+	processedString = strings.TrimSpace(processedString)
+	return processedString
+}
