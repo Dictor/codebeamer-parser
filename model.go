@@ -26,12 +26,15 @@ type (
 	}
 
 	IssueNode struct {
-		Id           string      `json:"id"`
-		Title        string      `json:"title"`
-		Text         string      `json:"text"`
-		Icon         string      `json:"icon"`
-		Url          string      `json:"url"`
-		Children     interface{} `json:"children"`
+		Id       string      `json:"id"`
+		Title    string      `json:"title"`
+		Text     string      `json:"text"`
+		Icon     string      `json:"icon"`
+		Url      string      `json:"url"`
+		Children interface{} `json:"children"`
+		ListAttr struct {
+			IconBgColor string `json:"iconBgColor"`
+		} `json:"li_attr"`
 		HasChildren  bool
 		RealChildren []*IssueNode
 	}
