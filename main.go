@@ -124,21 +124,35 @@ func main() {
 	// save parse result
 	resultJson := lo.Must(json.MarshalIndent(rootTracker, "", "  "))
 	lo.Must0(os.WriteFile("result.json", resultJson, 0666))
-	/*
 
-
-			// < Step 4. 각 상세 사양 문서의 복잡도 계산 >
-			for _, detailRq := range findResult {
-				complexity := getComplexityOfDetailRQ(taskCtx, trackerId, detailRq)
-				log.Printf("[Step 4] 상세 사양 문서 ID=%d의 복잡도=%d", detailRq.NodeId, complexity)
-				totalLogResult = append(totalLogResult, logResult{
-					DetailRqId: detailRq.Id,
-					DetailRq:   detailRq,
-					Complexity: complexity,
-				})
-			}
+	// calculate complexity
+	var recursiveIssueText func(*IssueNode) []string
+	recursiveIssueText = func(issue *IssueNode) []string {
+		ret := []string{}
+		ret = append(ret, EscapeDotString(issue.Text))
+		for _, childIssue := range issue.RealChildren {
+			ret = append(ret, recursiveIssueText(childIssue)...)
 		}
-	*/
+		return ret
+	}
+	complexity := map[string]int{}
+	for _, childTracker := range vaildChildTracker {
+		for _, childIssue := range childTracker.Children {
+			complexity[EscapeDotString(childIssue.Title)] = lo.Reduce[string, int](
+				recursiveIssueText(childIssue),
+				func(agg int, item string, index int) int {
+					agg += strings.Count(item, "[ISSUE:")
+					return agg
+				},
+				0,
+			)
+		}
+	}
+
+	// save complexity result
+	complexityJson := lo.Must(json.MarshalIndent(complexity, "", "  "))
+	lo.Must0(os.WriteFile("complexity.json", complexityJson, 0666))
+	return
 }
 
 /*
