@@ -1,1 +1,4 @@
 chromeData/*
+*.exe
+*.svg
+*.json
