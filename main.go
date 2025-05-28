@@ -126,22 +126,25 @@ func main() {
 	lo.Must0(os.WriteFile("result.json", resultJson, 0666))
 
 	// calculate complexity
-	var recursiveIssueText func(*IssueNode) []string
-	recursiveIssueText = func(issue *IssueNode) []string {
-		ret := []string{}
-		ret = append(ret, EscapeDotString(issue.Text))
-		for _, childIssue := range issue.RealChildren {
-			ret = append(ret, recursiveIssueText(childIssue)...)
+	var recursiveIssueText func(*IssueNode)
+	detailRequirementNode := []*IssueNode{}
+	recursiveIssueText = func(issue *IssueNode) {
+		if issue.Text == RequirementNodeName {
+			detailRequirementNode = append(detailRequirementNode, issue)
 		}
-		return ret
+		for _, childIssue := range issue.RealChildren {
+			recursiveIssueText(childIssue)
+		}
 	}
+
 	complexity := map[string]int{}
 	for _, childTracker := range vaildChildTracker {
 		for _, childIssue := range childTracker.Children {
-			complexity[EscapeDotString(childIssue.Title)] = lo.Reduce[string, int](
-				recursiveIssueText(childIssue),
-				func(agg int, item string, index int) int {
-					agg += strings.Count(item, "[ISSUE:")
+			recursiveIssueText(childIssue)
+			complexity[EscapeDotString(childIssue.Title)] = lo.Reduce[*IssueNode, int](
+				detailRequirementNode,
+				func(agg int, item *IssueNode, index int) int {
+					agg += strings.Count(item.Text, "[ISSUE:")
 					return agg
 				},
 				0,
@@ -152,7 +155,6 @@ func main() {
 	// save complexity result
 	complexityJson := lo.Must(json.MarshalIndent(complexity, "", "  "))
 	lo.Must0(os.WriteFile("complexity.json", complexityJson, 0666))
-	return
 }
 
 /*
