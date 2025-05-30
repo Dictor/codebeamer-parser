@@ -26,9 +26,10 @@ var Logger *logrus.Logger = logrus.New()
 
 func main() {
 	// flag
-	var debugLog, saveGraph bool
+	var debugLog, saveGraph, skipCrawling bool
 	flag.BoolVar(&debugLog, "debug", false, "print debug log")
 	flag.BoolVar(&saveGraph, "graph", false, "save graph image")
+	flag.BoolVar(&skipCrawling, "skip-crawl", false, "skip crawling, using result.json instead")
 	flag.Parse()
 
 	// logger setting
@@ -43,47 +44,51 @@ func main() {
 	graph := lo.Must(g.Graph())
 	defer graph.Close()
 
-	// init chrome
-	Logger.Info("init chrome connection")
-	allocCtx, cancelAlloc := chromedp.NewRemoteAllocator(context.Background(), ChromeDevtoolsURL)
-	defer cancelAlloc()
-	taskCtx, cancelTask := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
-	defer cancelTask()
+	// make up codebeamer info
+	var rootTracker *RootTrackerNode
+	var vaildChildTracker []*TrackerNode
+	if skipCrawling {
+		// restore info
+		Logger.Info("restore saved info")
+		lo.Must0(
+			json.Unmarshal(
+				lo.Must(os.ReadFile("valid_child_tracker.json")),
+				&vaildChildTracker,
+			),
+		)
+		lo.Must0(
+			json.Unmarshal(
+				lo.Must(os.ReadFile("root_tracker.json")),
+				&rootTracker,
+			),
+		)
+	} else {
+		// init chrome
+		Logger.Info("init chrome connection")
+		allocCtx, cancelAlloc := chromedp.NewRemoteAllocator(context.Background(), ChromeDevtoolsURL)
+		defer cancelAlloc()
+		taskCtx, cancelTask := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
+		defer cancelTask()
 
-	// navigate chrome for login
-	Logger.Info("browser will be navigated to codebeamer page, please login until 10 sec")
-	lo.Must0(
-		chromedp.Run(taskCtx,
-			chromedp.Navigate(CodebeamerHost),
-			chromedp.Sleep(10*time.Second),
-		),
-	)
+		// crawling
+		vaildChildTracker, rootTracker = CrawlCodebeamer(taskCtx, 300*time.Millisecond)
 
-	// find root tracker
-	Logger.Info("start to find tracker")
-	rootTracker := lo.Must1(FindRootTrackerByName(taskCtx, FcuProjectId, FcuRequirementName))
-
-	// check sub-root tracker
-	vaildChildTracker := []*TrackerNode{}
-	for _, childTracker := range rootTracker.Children {
-		time.Sleep(300 * time.Millisecond)
-		if err := FillTrackerChild(taskCtx, childTracker); err == nil {
-			vaildChildTracker = append(vaildChildTracker, childTracker)
-		} else {
-			Logger.WithError(err).WithField("trackerId", childTracker.TrackerId).Warn("failed to process tracker")
-		}
+		// save parse result
+		lo.Must0(
+			os.WriteFile(
+				"valid_child_tracker.json",
+				lo.Must(json.MarshalIndent(vaildChildTracker, "", "  ")),
+				0666,
+			),
+		)
+		lo.Must0(
+			os.WriteFile(
+				"root_tracker.json",
+				lo.Must(json.MarshalIndent(rootTracker, "", "  ")),
+				0666,
+			),
+		)
 	}
-	Logger.WithField("count", len(vaildChildTracker)).Info("complete to find tracker")
-
-	// check issue
-	Logger.Info("start to find issue")
-	for _, childTracker := range vaildChildTracker {
-		for _, childIssue := range childTracker.Children {
-			time.Sleep(300 * time.Millisecond)
-			RecursiveFillIssueChild(taskCtx, childIssue, strconv.Itoa(childTracker.TrackerId), 300*time.Millisecond)
-		}
-	}
-	Logger.Info("complete to find issue")
 
 	// construct graph
 	Logger.Info("start to construct graph")
@@ -121,30 +126,28 @@ func main() {
 	}
 	Logger.Info("complete to construct graph")
 
-	// save parse result
-	resultJson := lo.Must(json.MarshalIndent(rootTracker, "", "  "))
-	lo.Must0(os.WriteFile("result.json", resultJson, 0666))
-
 	// calculate complexity
-	var recursiveIssueText func(*IssueNode)
-	detailRequirementNode := []*IssueNode{}
-	recursiveIssueText = func(issue *IssueNode) {
+	var recursiveIssueText func(*IssueNode) []*IssueNode
+	recursiveIssueText = func(issue *IssueNode) []*IssueNode {
+		ret := []*IssueNode{}
 		if issue.Text == RequirementNodeName {
-			detailRequirementNode = append(detailRequirementNode, issue)
+			ret = append(ret, issue)
 		}
 		for _, childIssue := range issue.RealChildren {
-			recursiveIssueText(childIssue)
+			ret = append(ret, recursiveIssueText(childIssue)...)
 		}
+		return ret
 	}
 
 	complexity := map[string]int{}
 	for _, childTracker := range vaildChildTracker {
 		for _, childIssue := range childTracker.Children {
-			recursiveIssueText(childIssue)
 			complexity[EscapeDotString(childIssue.Title)] = lo.Reduce[*IssueNode, int](
-				detailRequirementNode,
+				recursiveIssueText(childIssue),
 				func(agg int, item *IssueNode, index int) int {
-					agg += strings.Count(item.Text, "[ISSUE:")
+					for _, ci := range item.RealChildren {
+						agg += strings.Count(ci.Text, "ISSUE:")
+					}
 					return agg
 				},
 				0,
@@ -157,40 +160,43 @@ func main() {
 	lo.Must0(os.WriteFile("complexity.json", complexityJson, 0666))
 }
 
-/*
-func getComplexityOfDetailRQ(chromeCtx context.Context, trackerId int, detailRQ *TreeType2Child) int {
-	log.Printf("[getComplexityOfDetailRQ] 상세 사양 탐색 시작, 문서 ID=%s", detailRQ.Id)
-
-	drqContent := ""
-	err := chromedp.Run(chromeCtx,
-		chromedp.Sleep(300*time.Millisecond),
-		executeFetchInPage(
-			TreeAjaxUrl,
-			createFetchOption("POST", false, NewTrackerTreeRequest(trackerId, detailRQ.NodeId, "")),
-			&drqContent,
+func CrawlCodebeamer(taskCtx context.Context, delayPerRequest time.Duration) (vaildChildTracker []*TrackerNode, rootTracker *RootTrackerNode) {
+	// navigate chrome for login
+	Logger.Info("browser will be navigated to codebeamer page, please login until 10 sec")
+	lo.Must0(
+		chromedp.Run(taskCtx,
+			chromedp.Navigate(CodebeamerHost),
+			chromedp.Sleep(10*time.Second),
 		),
 	)
-	if err != nil {
-		log.Printf("[getComplexityOfDetailRQ] 크롬 오류: %v", err)
-		return 0
-	}
-	drqElements := []TreeType3Child{}
-	if err := json.Unmarshal([]byte(drqContent), &drqElements); err != nil {
-		log.Printf("[getComplexityOfDetailRQ] 파싱 오류: %v", err)
-		return 0
-	}
 
-	ret := 0
-	for _, element := range drqElements {
-		if element.ListAttr.IconBgColor == "#ababab" {
-			continue
+	// find root tracker
+	Logger.Info("start to find tracker")
+	rootTracker = lo.Must1(FindRootTrackerByName(taskCtx, FcuProjectId, FcuRequirementName))
+
+	// check sub-root tracker
+	vaildChildTracker = []*TrackerNode{}
+	for _, childTracker := range rootTracker.Children {
+		time.Sleep(delayPerRequest)
+		if err := FillTrackerChild(taskCtx, childTracker); err == nil {
+			vaildChildTracker = append(vaildChildTracker, childTracker)
+		} else {
+			Logger.WithError(err).WithField("trackerId", childTracker.TrackerId).Warn("failed to process tracker")
 		}
-		ret += strings.Count(element.Text, "[ISSUE:")
 	}
+	Logger.WithField("count", len(vaildChildTracker)).Info("complete to find tracker")
 
-	return ret
+	// check issue
+	Logger.Info("start to find issue")
+	for _, childTracker := range vaildChildTracker {
+		for _, childIssue := range childTracker.Children {
+			time.Sleep(delayPerRequest)
+			RecursiveFillIssueChild(taskCtx, childIssue, strconv.Itoa(childTracker.TrackerId), 300*time.Millisecond)
+		}
+	}
+	Logger.Info("complete to find issue")
+	return
 }
-*/
 
 func EscapeDotString(s string) string {
 	var cleanHTMLRegex = regexp.MustCompile("<[^>]*>")
