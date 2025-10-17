@@ -7,16 +7,18 @@ const (
 	TreeAjaxUrl               string = "/cb/trackers/ajax/tree.spr"
 
 	// user variant setting
+	// settings for HMC
 	CodebeamerHost           string = "https://ade-cb.hmckmc.co.kr"
-	FcuProjectId             int    = 119
+	FcuProjectId             string = "119"
 	FcuRequirementName       string = "소프트웨어 요구사양 FCU"
 	CodebeamerRqIconUrl      string = "/cb/displayDocument?doc_id=30320010"
 	TreeConfigDataExpression string = "tree.config.data"
 	RequirementNodeName      string = "상세 사양"
 
+	// settings for PTC
 	/*
 		CodebeamerHost           string = "https://codebeamer.com"
-		FcuProjectId             int    = 1005
+		FcuProjectId             string = "1005"
 		FcuRequirementName       string = "작업 항목"
 		CodebeamerRqIconUrl      string = "/cb/displayDocument?doc_id=30320010"
 		TreeConfigDataExpression string = "tree.config.data"
