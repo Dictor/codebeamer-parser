@@ -11,6 +11,10 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
+// createFetchOption은 fetch 요청에 필요한 옵션 객체를 생성합니다.
+// httpMethod: HTTP 메서드 (GET, POST 등)
+// isJson: 요청 본문이 JSON 형식인지 여부
+// body: 요청 본문에 포함될 데이터 (map[string]interface{} 형식)
 func createFetchOption(httpMethod string, isJson bool, body map[string]interface{}) map[string]interface{} {
 	var (
 		reqBody []byte = []byte{}
