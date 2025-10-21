@@ -12,18 +12,18 @@ import (
 )
 
 // 주어진 이름과 프로젝트 ID으로 최상위 트래커를 찾습니다.
-func FindRootTrackerByName(taskCtx context.Context, projectId string, targetTrackerName string) (*RootTrackerNode, error) {
+func FindRootTrackerByName(taskCtx context.Context, config ParsingConfig, targetTrackerName string) (*RootTrackerNode, error) {
 	Logger.WithFields(logrus.Fields{
 		"targetName": targetTrackerName,
-		"projectId":  projectId,
+		"projectId":  config.FcuProjectId,
 	}).Debug("FillTrackerChild")
 
 	// 호스트 URL에 접속하여, 내부 JS 런타임에서 fetch를 수행하여 POST API 호출
 	trackerHomePageTreeResult := ""
 	err := chromedp.Run(taskCtx,
-		chromedp.Navigate(CodebeamerHost),
+		chromedp.Navigate(config.CodebeamerHost),
 		executeFetchInPage(
-			fmt.Sprintf(GetTrackerHomePageTreeUrl, projectId),
+			fmt.Sprintf(config.GetTrackerHomePageTreeUrl, config.FcuProjectId),
 			createFetchOption("POST", false, nil),
 			&trackerHomePageTreeResult,
 		),
@@ -50,16 +50,16 @@ func FindRootTrackerByName(taskCtx context.Context, projectId string, targetTrac
 }
 
 // 주어진 트래커 인스턴스의 자식 트래커 인스턴스를 찾음
-func FillTrackerChild(taskCtx context.Context, targetTracker *TrackerNode) error {
+func FillTrackerChild(taskCtx context.Context, config ParsingConfig, targetTracker *TrackerNode) error {
 	Logger.WithFields(logrus.Fields{
 		"trackerId": targetTracker.Id,
 	}).Debug("FillTrackerChild")
 
 	// 주어진 트래커 인스턴스의 페이지에 접속한 후, JS 런타임에서 config 변수 값을 평가
 	err := chromedp.Run(taskCtx,
-		chromedp.Navigate(fmt.Sprintf(CodebeamerHost+TrackerPageUrl, targetTracker.Id)),
-		waitUntilJSVariableIsDefined(TreeConfigDataExpression, 10*time.Second, 1*time.Second),
-		chromedp.Evaluate(TreeConfigDataExpression, targetTracker),
+		chromedp.Navigate(fmt.Sprintf(config.CodebeamerHost+config.TrackerPageUrl, targetTracker.Id)),
+		waitUntilJSVariableIsDefined(config.TreeConfigDataExpression, 10*time.Second, 1*time.Second),
+		chromedp.Evaluate(config.TreeConfigDataExpression, targetTracker),
 	)
 	if err != nil {
 		return err
@@ -74,7 +74,7 @@ func FillTrackerChild(taskCtx context.Context, targetTracker *TrackerNode) error
 }
 
 // 주어진 이슈 인스턴스의 자식 이슈 인스턴스를 찾음
-func FillIssueChild(taskCtx context.Context, targetIssue *IssueNode, parentTrackerId string) error {
+func FillIssueChild(taskCtx context.Context, config ParsingConfig, targetIssue *IssueNode, parentTrackerId string) error {
 	Logger.WithFields(logrus.Fields{
 		"issueId":   targetIssue.Id,
 		"trackerId": parentTrackerId,
@@ -89,8 +89,8 @@ func FillIssueChild(taskCtx context.Context, targetIssue *IssueNode, parentTrack
 	childString := ""
 	err := chromedp.Run(taskCtx,
 		executeFetchInPage(
-			TreeAjaxUrl,
-			createFetchOption("POST", false, NewTrackerTreeRequest(parentTrackerId, targetIssue.Id, "")),
+			config.TreeAjaxUrl,
+			createFetchOption("POST", false, NewTrackerTreeRequest(parentTrackerId, config.FcuProjectId, targetIssue.Id, "")),
 			&childString,
 		),
 	)
@@ -112,8 +112,8 @@ func FillIssueChild(taskCtx context.Context, targetIssue *IssueNode, parentTrack
 
 // 최상위 트래커 -> 자식 트래커 -> 자식 이슈 까지 3단계의 자료형을 완성했다면 1대 자식 이슈까지 얻어온 것임
 // 이때 2대 이상의 하위 트래커를 재귀적으로 탐색하며 자료형을 완결시킴
-func RecursiveFillIssueChild(taskCtx context.Context, issue *IssueNode, parentTrackerId string, sleepPerFill time.Duration) {
-	if err := FillIssueChild(taskCtx, issue, parentTrackerId); err != nil {
+func RecursiveFillIssueChild(taskCtx context.Context, config ParsingConfig, issue *IssueNode, parentTrackerId string, sleepPerFill time.Duration) {
+	if err := FillIssueChild(taskCtx, config, issue, parentTrackerId); err != nil {
 		Logger.WithError(err).WithField("issueId", issue.Id).Warn("failed to process issue")
 		return
 	}
@@ -122,6 +122,6 @@ func RecursiveFillIssueChild(taskCtx context.Context, issue *IssueNode, parentTr
 	}
 	for _, child := range issue.RealChildren {
 		time.Sleep(sleepPerFill)
-		RecursiveFillIssueChild(taskCtx, child, parentTrackerId, sleepPerFill)
+		RecursiveFillIssueChild(taskCtx, config, child, parentTrackerId, sleepPerFill)
 	}
 }

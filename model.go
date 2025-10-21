@@ -49,7 +49,7 @@ type (
 )
 
 // 트래커 트리를 얻기 위한 API 요청 객체를 생성
-func NewTrackerTreeRequest(trackerId string, nodeId string, openNodes string) map[string]interface{} {
+func NewTrackerTreeRequest(trackerId string, FcuProjectId string, nodeId string, openNodes string) map[string]interface{} {
 	return map[string]interface{}{
 		"project_id":             FcuProjectId,
 		"type":                   "",

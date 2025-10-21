@@ -1,22 +1,23 @@
 package main
 
 import (
-	"context" // JSON 처리를 위해 추가
+	"context"
 	"encoding/json"
 	"flag"
 	"html"
-	"log" // os.Executable 사용 위해 추가
+	"log"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 
-	// 경로 조작 위해 추가
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/go-playground/validator/v10"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 
 	"github.com/goccy/go-graphviz"
 	"github.com/goccy/go-graphviz/cgraph"
@@ -39,6 +40,31 @@ func main() {
 		Logger.SetLevel(logrus.DebugLevel)
 	}
 	Logger.SetFormatter(&logrus.TextFormatter{})
+
+	// 설정 초기화
+	v := viper.New()
+	v.SetConfigName("config")
+	v.SetConfigType("yaml")
+	v.AddConfigPath(".")
+
+	// 설정 기본값 설정
+	// 아래 값은 특정 회사나 프로젝트, 용도에 귀속되지 않고 코드비머 체계 자체에서 범용적으로 사용되므로 기본 값으로 설정함
+	v.SetDefault("chrome_devtools_url", "ws://127.0.0.1:9222/devtools/browser")
+	v.SetDefault("get_tracker_home_page_tree_url", "/cb/ajax/getTrackerHomePageTree.spr?proj_id=%s")
+	v.SetDefault("tracker_page_url", "/cb/tracker/%s")
+	v.SetDefault("tree_ajax_url", "/cb/trackers/ajax/tree.spr")
+	v.SetDefault("tree_config_data_expression", "tree.config.data")
+
+	// 설정 파일 읽기
+	Logger.Info("read setting file")
+	lo.Must0(v.ReadInConfig())
+	config := ParsingConfig{}
+	lo.Must0(v.Unmarshal(&config))
+	Logger.WithField("config", config).Debug("config")
+
+	// 설정 값 검증
+	validate := validator.New()
+	lo.Must0(validate.Struct(&config))
 
 	// 사양 그래프 시각화를 위한 graphviz 초기화
 	g := lo.Must(graphviz.New(context.Background()))
@@ -68,14 +94,14 @@ func main() {
 		// 존재하지 않으므로, 크롤링 진행
 		// 크롬 브라우저 초기화
 		Logger.Info("init chrome connection")
-		allocCtx, cancelAlloc := chromedp.NewRemoteAllocator(context.Background(), ChromeDevtoolsURL)
+		allocCtx, cancelAlloc := chromedp.NewRemoteAllocator(context.Background(), config.ChromeDevtoolsURL)
 		defer cancelAlloc()
 		taskCtx, cancelTask := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
 		defer cancelTask()
 
 		// 크롤링 진행
 		// 이때 요청 당 간격을 300ms으로 설정하여 의도치 않은 DoS 공격을 방지
-		vaildChildTracker, rootTracker = CrawlCodebeamer(taskCtx, 300*time.Millisecond)
+		vaildChildTracker, rootTracker = CrawlCodebeamer(taskCtx, config, 300*time.Millisecond)
 
 		// 크롤링 결과를 저장
 		lo.Must0(
@@ -135,7 +161,7 @@ func main() {
 	var recursiveIssueText func(*IssueNode) []*IssueNode
 	recursiveIssueText = func(issue *IssueNode) []*IssueNode {
 		ret := []*IssueNode{}
-		if issue.Text == RequirementNodeName {
+		if issue.Text == config.RequirementNodeName {
 			ret = append(ret, issue)
 		}
 		for _, childIssue := range issue.RealChildren {
@@ -166,26 +192,26 @@ func main() {
 }
 
 // 크롬 브라우저를 제어하여 코드 비머의 정보를 파싱
-func CrawlCodebeamer(taskCtx context.Context, delayPerRequest time.Duration) (vaildChildTracker []*TrackerNode, rootTracker *RootTrackerNode) {
+func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequest time.Duration) (vaildChildTracker []*TrackerNode, rootTracker *RootTrackerNode) {
 	// 코드 비머 Host URL로 접속하여 10초동안 대기
 	// 이 10초가 만료되기 전에 사용자는 크롬 브라우저 적절한 자격 증명으로 로그인을 완료해야함
 	Logger.Info("browser will be navigated to codebeamer page, please login until 10 sec")
 	lo.Must0(
 		chromedp.Run(taskCtx,
-			chromedp.Navigate(CodebeamerHost),
+			chromedp.Navigate(config.CodebeamerHost),
 			chromedp.Sleep(10*time.Second),
 		),
 	)
 
 	// 최상위 트래커를 검색
 	Logger.Info("start to find tracker")
-	rootTracker = lo.Must1(FindRootTrackerByName(taskCtx, FcuProjectId, FcuRequirementName))
+	rootTracker = lo.Must1(FindRootTrackerByName(taskCtx, config, config.FcuRequirementName))
 
 	// 최상위 트래커의 하위 트래커 목록을 재귀적으로 탐색
 	vaildChildTracker = []*TrackerNode{}
 	for _, childTracker := range rootTracker.Children {
 		time.Sleep(delayPerRequest)
-		if err := FillTrackerChild(taskCtx, childTracker); err == nil {
+		if err := FillTrackerChild(taskCtx, config, childTracker); err == nil {
 			vaildChildTracker = append(vaildChildTracker, childTracker)
 		} else {
 			Logger.WithError(err).WithField("trackerId", childTracker.TrackerId).Warn("failed to process tracker")
@@ -198,7 +224,7 @@ func CrawlCodebeamer(taskCtx context.Context, delayPerRequest time.Duration) (va
 	for _, childTracker := range vaildChildTracker {
 		for _, childIssue := range childTracker.Children {
 			time.Sleep(delayPerRequest)
-			RecursiveFillIssueChild(taskCtx, childIssue, strconv.Itoa(childTracker.TrackerId), 300*time.Millisecond)
+			RecursiveFillIssueChild(taskCtx, config, childIssue, strconv.Itoa(childTracker.TrackerId), 300*time.Millisecond)
 		}
 	}
 	Logger.Info("complete to find issue")
