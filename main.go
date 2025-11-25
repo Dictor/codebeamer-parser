@@ -54,6 +54,8 @@ func main() {
 	v.SetDefault("tracker_page_url", "/cb/tracker/%s")
 	v.SetDefault("tree_ajax_url", "/cb/trackers/ajax/tree.spr")
 	v.SetDefault("tree_config_data_expression", "tree.config.data")
+	v.SetDefault("interval_per_request_ms", 300)
+	v.SetDefault("js_variable_wait_timeout_s", 10)
 
 	// 설정 파일 읽기
 	Logger.Info("read setting file")
@@ -101,7 +103,7 @@ func main() {
 
 		// 크롤링 진행
 		// 이때 요청 당 간격을 300ms으로 설정하여 의도치 않은 DoS 공격을 방지
-		vaildChildTracker, rootTracker = CrawlCodebeamer(taskCtx, config, 300*time.Millisecond)
+		vaildChildTracker, rootTracker = CrawlCodebeamer(taskCtx, config, time.Duration(config.IntervalPerRequest)*time.Millisecond)
 
 		// 크롤링 결과를 저장
 		lo.Must0(

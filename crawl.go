@@ -58,7 +58,7 @@ func FillTrackerChild(taskCtx context.Context, config ParsingConfig, targetTrack
 	// 주어진 트래커 인스턴스의 페이지에 접속한 후, JS 런타임에서 config 변수 값을 평가
 	err := chromedp.Run(taskCtx,
 		chromedp.Navigate(fmt.Sprintf(config.CodebeamerHost+config.TrackerPageUrl, targetTracker.Id)),
-		waitUntilJSVariableIsDefined(config.TreeConfigDataExpression, 10*time.Second, 1*time.Second),
+		waitUntilJSVariableIsDefined(config.TreeConfigDataExpression, time.Duration(config.JsVariableWaitTimeout)*time.Second, 1*time.Second),
 		chromedp.Evaluate(config.TreeConfigDataExpression, targetTracker),
 	)
 	if err != nil {

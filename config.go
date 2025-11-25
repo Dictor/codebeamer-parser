@@ -12,6 +12,8 @@ type (
 		CodebeamerRqIconUrl       string `mapstructure:"codebeamer_rq_icon_url" validate:"required,uri"`
 		TreeConfigDataExpression  string `mapstructure:"tree_config_data_expression" validate:"required"`
 		RequirementNodeName       string `mapstructure:"requirement_node_name" validate:"required"`
+		IntervalPerRequest        int    `mapstructure:"interval_per_request_ms" validate:"required"`
+		JsVariableWaitTimeout     int    `mapstructure:"js_variable_wait_timeout_s" validate:"required"`
 	}
 )
 
