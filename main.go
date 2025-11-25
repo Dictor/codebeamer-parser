@@ -30,9 +30,11 @@ var Logger *logrus.Logger = logrus.New()
 func main() {
 	// 사용자의 입력을 flag로 받아옴
 	var debugLog, saveGraph, skipCrawling bool
+	var partialCrawling string
 	flag.BoolVar(&debugLog, "debug", false, "print debug log")
 	flag.BoolVar(&saveGraph, "graph", false, "save graph image")
 	flag.BoolVar(&skipCrawling, "skip-crawl", false, "skip crawling, using result.json instead")
+	flag.StringVar(&partialCrawling, "partial-crawl", "", "crawing only a tracker of given id")
 	flag.Parse()
 
 	// debug 플래그가 활성화된 경우, 로거를 디버그 모드로 변경
@@ -103,7 +105,7 @@ func main() {
 
 		// 크롤링 진행
 		// 이때 요청 당 간격을 300ms으로 설정하여 의도치 않은 DoS 공격을 방지
-		vaildChildTracker, rootTracker = CrawlCodebeamer(taskCtx, config, time.Duration(config.IntervalPerRequest)*time.Millisecond)
+		vaildChildTracker, rootTracker = CrawlCodebeamer(taskCtx, config, time.Duration(config.IntervalPerRequest)*time.Millisecond, partialCrawling != "", partialCrawling)
 
 		// 크롤링 결과를 저장
 		lo.Must0(
@@ -194,7 +196,7 @@ func main() {
 }
 
 // 크롬 브라우저를 제어하여 코드 비머의 정보를 파싱
-func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequest time.Duration) (vaildChildTracker []*TrackerNode, rootTracker *RootTrackerNode) {
+func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequest time.Duration, partialMode bool, partialId string) (vaildChildTracker []*TrackerNode, rootTracker *RootTrackerNode) {
 	// 코드 비머 Host URL로 접속하여 10초동안 대기
 	// 이 10초가 만료되기 전에 사용자는 크롬 브라우저 적절한 자격 증명으로 로그인을 완료해야함
 	Logger.Info("browser will be navigated to codebeamer page, please login until 10 sec")
@@ -209,9 +211,29 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 	Logger.Info("start to find tracker")
 	rootTracker = lo.Must1(FindRootTrackerByName(taskCtx, config, config.FcuRequirementName))
 
+	if partialMode {
+		Logger.WithField("target_id", partialId).Info("partial tracker find mode enabled")
+	}
+
 	// 최상위 트래커의 하위 트래커 목록을 재귀적으로 탐색
 	vaildChildTracker = []*TrackerNode{}
 	for _, childTracker := range rootTracker.Children {
+		// 부분 파싱을 위한 테스트
+		childId := childTracker.Id
+		childTrackerId := strconv.Itoa(childTracker.TrackerId)
+		if partialMode && (childId == partialId || childTrackerId == partialId) {
+			Logger.WithFields(logrus.Fields{
+				"child_id":         childId,
+				"child_tracker_id": childTrackerId,
+			}).Debug("child tracker passed because id doesn't matched")
+			continue
+		} else {
+			Logger.WithFields(logrus.Fields{
+				"child_id":         childId,
+				"child_tracker_id": childTrackerId,
+			}).Debug("child matched for partial crawling")
+		}
+
 		time.Sleep(delayPerRequest)
 		if err := FillTrackerChild(taskCtx, config, childTracker); err == nil {
 			vaildChildTracker = append(vaildChildTracker, childTracker)
