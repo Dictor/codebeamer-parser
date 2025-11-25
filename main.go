@@ -125,18 +125,18 @@ func main() {
 	// 사양 그래프를 생성
 	// 첫번째로, 모든 트래커를 재귀적으로 순회하며 그래프 생성
 	Logger.Info("start to construct graph")
-	gRootTracker := lo.Must(graph.CreateNodeByName(EscapeDotString(rootTracker.Text)))
+	gRootTracker := lo.Must(graph.CreateNodeByName(EscapeDotString(rootTracker.Id)))
 	for _, childTracker := range vaildChildTracker {
-		gChildTracker := lo.Must(graph.CreateNodeByName(EscapeDotString(childTracker.Text)))
+		gChildTracker := lo.Must(graph.CreateNodeByName(EscapeDotString(childTracker.Id)))
 		graph.CreateEdgeByName("", gRootTracker, gChildTracker)
 		childTracker.GraphNode = gChildTracker
 	}
 	// 두번째로, 트래커의 하위 이슈를 모두 순회하며 그래프 생성
 	var recursiveIssueGraph func(*IssueNode) *cgraph.Node
 	recursiveIssueGraph = func(issue *IssueNode) *cgraph.Node {
-		gIssue := lo.Must(graph.CreateNodeByName(EscapeDotString(issue.Text)))
+		gIssue := lo.Must(graph.CreateNodeByName(EscapeDotString(issue.Id)))
 		for _, childIssue := range issue.RealChildren {
-			gChildIssue := lo.Must(graph.CreateNodeByName(EscapeDotString(childIssue.Text)))
+			gChildIssue := lo.Must(graph.CreateNodeByName(EscapeDotString(childIssue.Id)))
 			graph.CreateEdgeByName("", gIssue, gChildIssue)
 			recursiveIssueGraph(childIssue)
 		}
