@@ -18,13 +18,17 @@ func FindRootTrackerByName(taskCtx context.Context, config ParsingConfig, target
 		"projectId":  config.FcuProjectId,
 	}).Debug("FillTrackerChild")
 
+	// csrf 처리
+	csrfValue, enableCsrf := taskCtx.Value("csrfToken").(string)
+	opt := createFetchOption("POST", false, nil, enableCsrf, csrfValue)
+
 	// 호스트 URL에 접속하여, 내부 JS 런타임에서 fetch를 수행하여 POST API 호출
 	trackerHomePageTreeResult := ""
 	err := chromedp.Run(taskCtx,
 		chromedp.Navigate(config.CodebeamerHost),
 		executeFetchInPage(
 			fmt.Sprintf(config.GetTrackerHomePageTreeUrl, config.FcuProjectId),
-			createFetchOption("POST", false, nil),
+			opt,
 			&trackerHomePageTreeResult,
 		),
 	)
@@ -85,12 +89,16 @@ func FillIssueChild(taskCtx context.Context, config ParsingConfig, targetIssue *
 		return nil
 	}
 
+	// csrf 처리
+	csrfValue, enableCsrf := taskCtx.Value("csrfToken").(string)
+	opt := createFetchOption("POST", false, NewTrackerTreeRequest(parentTrackerId, config.FcuProjectId, targetIssue.Id, ""), enableCsrf, csrfValue)
+
 	// 주어진 코드비머 페이지에서 좌측 트리를 탐색하여 하위 노드를 모두 얻어옴
 	childString := ""
 	err := chromedp.Run(taskCtx,
 		executeFetchInPage(
 			config.TreeAjaxUrl,
-			createFetchOption("POST", false, NewTrackerTreeRequest(parentTrackerId, config.FcuProjectId, targetIssue.Id, "")),
+			opt,
 			&childString,
 		),
 	)

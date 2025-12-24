@@ -58,6 +58,8 @@ func main() {
 	v.SetDefault("tree_config_data_expression", "tree.config.data")
 	v.SetDefault("interval_per_request_ms", 300)
 	v.SetDefault("js_variable_wait_timeout_s", 10)
+	v.SetDefault("csrf_token_expression", "window.ajaxHeaders['X-CSRF-TOKEN']")
+	v.SetDefault("enable_csrf_token", true)
 
 	// 설정 파일 읽기
 	Logger.Info("read setting file")
@@ -206,6 +208,13 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 			chromedp.Sleep(10*time.Second),
 		),
 	)
+
+	// API 중 CSRF 없으면 403 반환하는 API를 위한 호환성용
+	if config.EnableCsrfToken {
+		csrfToken := lo.Must1(GetCsrfToken(taskCtx, config))
+		taskCtx = context.WithValue(taskCtx, "csrfToken", csrfToken)
+		Logger.WithField("value", csrfToken).Debug("csrf token updated")
+	}
 
 	// 최상위 트래커를 검색
 	Logger.Info("start to find tracker")

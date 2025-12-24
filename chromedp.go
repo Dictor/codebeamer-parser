@@ -15,7 +15,7 @@ import (
 // httpMethod: HTTP 메서드 (GET, POST 등)
 // isJson: 요청 본문이 JSON 형식인지 여부
 // body: 요청 본문에 포함될 데이터 (map[string]interface{} 형식)
-func createFetchOption(httpMethod string, isJson bool, body map[string]interface{}) map[string]interface{} {
+func createFetchOption(httpMethod string, isJson bool, body map[string]interface{}, enableCsrf bool, csrfToken string) map[string]interface{} {
 	var (
 		reqBody []byte = []byte{}
 		err     error
@@ -50,11 +50,19 @@ func createFetchOption(httpMethod string, isJson bool, body map[string]interface
 		"headers":     map[string]string{},
 		"body":        string(reqBody),
 	}
+
 	if isJson {
 		req["headers"].(map[string]string)["Content-Type"] = "application/json; charset=UTF-8"
 	} else {
 		req["headers"].(map[string]string)["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
 	}
+
+	headers := req["headers"].(map[string]string)
+	if enableCsrf {
+		headers["x-csrf-token"] = csrfToken
+		headers["X-Requested-With"] = "XMLHttpRequest" // 서버가 AJAX 요청으로 식별하기 위해 보통 필수
+	}
+
 	return req
 }
 
