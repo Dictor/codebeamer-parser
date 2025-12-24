@@ -54,10 +54,12 @@ func main() {
 	v.SetDefault("chrome_devtools_url", "ws://127.0.0.1:9222/devtools/browser")
 	v.SetDefault("get_tracker_home_page_tree_url", "/cb/ajax/getTrackerHomePageTree.spr?proj_id=%s")
 	v.SetDefault("tracker_page_url", "/cb/tracker/%s")
+	v.SetDefault("issue_page_url", "/cb/issue/%s")
 	v.SetDefault("tree_ajax_url", "/cb/trackers/ajax/tree.spr")
 	v.SetDefault("tree_config_data_expression", "tree.config.data")
 	v.SetDefault("interval_per_request_ms", 300)
 	v.SetDefault("js_variable_wait_timeout_s", 10)
+	v.SetDefault("issue_content_selector", ".wikiContent")
 	v.SetDefault("csrf_token_expression", "window.ajaxHeaders['X-CSRF-TOKEN']")
 	v.SetDefault("enable_csrf_token", true)
 
@@ -184,6 +186,7 @@ func main() {
 				func(agg int, item *IssueNode, index int) int {
 					for _, ci := range item.RealChildren {
 						agg += strings.Count(ci.Text, "ISSUE:")
+						agg += strings.Count(ci.Content, "ISSUE:")
 					}
 					return agg
 				},
@@ -259,7 +262,12 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 			time.Sleep(delayPerRequest)
 			RecursiveFillIssueChild(taskCtx, config, childIssue, strconv.Itoa(childTracker.TrackerId), 300*time.Millisecond)
 		}
+
+		// 찾은 이슈의 본문 탐색 탐색
+		Logger.Info("  fill issue content")
+		FillChildIssueContent(taskCtx, config, childTracker)
 	}
+
 	Logger.Info("complete to find issue")
 	return
 }

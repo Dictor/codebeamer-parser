@@ -107,6 +107,11 @@ func FillIssueChild(taskCtx context.Context, config ParsingConfig, targetIssue *
 	}
 
 	// 얻어온 결과를 파싱
+	Logger.WithFields(logrus.Fields{
+		"issueId":   targetIssue.Id,
+		"trackerId": parentTrackerId,
+		"result":    childString,
+	}).Debug("FillIssueNewTrackerTreeRequest fetch result")
 	if err := json.Unmarshal([]byte(childString), &targetIssue.RealChildren); err != nil {
 		return err
 	}
@@ -132,4 +137,81 @@ func RecursiveFillIssueChild(taskCtx context.Context, config ParsingConfig, issu
 		time.Sleep(sleepPerFill)
 		RecursiveFillIssueChild(taskCtx, config, child, parentTrackerId, sleepPerFill)
 	}
+}
+
+// 자식 트래커의 모든 하위 이슈의 Content를 얻어와 채움
+func FillChildIssueContent(taskCtx context.Context, config ParsingConfig, targetTracker *TrackerNode) {
+	Logger.WithFields(logrus.Fields{
+		"trackerId": targetTracker.Id,
+	}).Debug("FillChildIssueContent")
+
+	var recursiveFillIssueContent func(issue *IssueNode) error
+	recursiveFillIssueContent = func(issue *IssueNode) error {
+		Logger.WithFields(logrus.Fields{
+			"trackerId": targetTracker.Id,
+		}).Debug("  - recursiveFillIssueContent")
+
+		taskCtx, taskCtxCancel := context.WithTimeout(taskCtx, time.Second*time.Duration(config.JsVariableWaitTimeout))
+		var innerHTML []string
+		err := chromedp.Run(taskCtx,
+			chromedp.Navigate(fmt.Sprintf(config.CodebeamerHost+config.IssuePageUrl, issue.Id)),
+			chromedp.WaitReady(config.IssueContentSelector, chromedp.ByQuery),
+			getInnerHtmlBySelector(config.IssueContentSelector, &innerHTML),
+		)
+		taskCtxCancel()
+
+		if err != nil {
+			Logger.WithFields(logrus.Fields{
+				"trackerId": targetTracker.Id,
+				"issueId":   issue.Id,
+			}).WithError(err).Error("failed to FillIssueContent: chromedp fail")
+			issue.Content = ""
+		} else {
+			if len(innerHTML) < 1 {
+				Logger.WithFields(logrus.Fields{
+					"trackerId": targetTracker.Id,
+					"issueId":   issue.Id,
+				}).Error("failed to FillIssueContent: empty innerHTML")
+			} else {
+				issue.Content = innerHTML[0]
+			}
+		}
+
+		if issue.HasChildren {
+			for _, childIssue := range issue.RealChildren {
+				recursiveFillIssueContent(childIssue)
+			}
+		}
+
+		return nil
+	}
+
+	for _, issue := range targetTracker.Children {
+		if err := recursiveFillIssueContent(issue); err != nil {
+			Logger.WithFields(logrus.Fields{
+				"trackerId": targetTracker.Id,
+				"issueId":   issue.Id,
+			}).Error("recursiveFillIssueContent failed")
+		}
+	}
+}
+
+func GetCsrfToken(taskCtx context.Context, config ParsingConfig) (string, error) {
+	// window.ajaxHeaders["X-CSRF-TOKEN"]
+	Logger.WithFields(logrus.Fields{}).Debug("GetCsrfToken")
+
+	var token string
+	// 모든 페이지에 토큰 변수가 존재하므로, 현재 페이지에서 평가
+	err := chromedp.Run(taskCtx,
+		chromedp.Evaluate(config.CsrfTokenExpression, &token),
+	)
+	if err != nil {
+		return "", err
+	}
+
+	if token == "" {
+		return "", fmt.Errorf("cannot find token object")
+	}
+
+	return token, nil
 }

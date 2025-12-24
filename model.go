@@ -36,6 +36,7 @@ type (
 	IssueNode struct {
 		Id       string      `json:"id"`
 		Title    string      `json:"title"`
+		Content  string      `json:"content"`
 		Text     string      `json:"text"`
 		Icon     string      `json:"icon"`
 		Url      string      `json:"url"`

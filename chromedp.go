@@ -154,3 +154,14 @@ func waitUntilJSVariableIsDefined(variableName string, timeout, interval time.Du
 		}
 	})
 }
+
+// getInnerHtmlBySelector는 주어진 CSS 선택자에 해당하는 모든 요소의 innerHTML을 가져오는 Action을 반환합니다.
+// selector: innerHTML을 가져올 요소를 찾기 위한 CSS 선택자.
+// results: innerHTML 문자열 슬라이스를 저장할 포인터.
+func getInnerHtmlBySelector(selector string, results *[]string) chromedp.Action {
+	script := fmt.Sprintf(`
+		Array.from(document.querySelectorAll('%s')).map(element => element.innerHTML);
+	`, selector)
+
+	return chromedp.Evaluate(script, results)
+}
