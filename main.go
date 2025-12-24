@@ -62,6 +62,7 @@ func main() {
 	v.SetDefault("issue_content_selector", ".wikiContent")
 	v.SetDefault("csrf_token_expression", "window.ajaxHeaders['X-CSRF-TOKEN']")
 	v.SetDefault("enable_csrf_token", true)
+	v.SetDefault("enable_requirement_node_name_filtering", true)
 
 	// 설정 파일 읽기
 	Logger.Info("read setting file")
@@ -169,7 +170,11 @@ func main() {
 	var recursiveIssueText func(*IssueNode) []*IssueNode
 	recursiveIssueText = func(issue *IssueNode) []*IssueNode {
 		ret := []*IssueNode{}
-		if issue.Text == config.RequirementNodeName {
+		if config.EnableRequirementNodeNameFiltering {
+			if issue.Text == config.RequirementNodeName {
+				ret = append(ret, issue)
+			}
+		} else {
 			ret = append(ret, issue)
 		}
 		for _, childIssue := range issue.RealChildren {
