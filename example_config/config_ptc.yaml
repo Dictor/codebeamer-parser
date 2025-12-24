@@ -1,0 +1,5 @@
+codebeamer_host: "https://codebeamer.com"
+fcu_project_id: "1005"
+fcu_requirement_name: "작업 항목"
+codebeamer_rq_icon_url: "/cb/displayDocument?doc_id=30320010"
+requirement_node_name: "downstream ex"
