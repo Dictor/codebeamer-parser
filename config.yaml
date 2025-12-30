@@ -1,5 +1,6 @@
-codebeamer_host: "https://ade-cb.hmckmc.co.kr"
-fcu_project_id: "119"
-fcu_requirement_name: "소프트웨어 요구사양 FCU"
+codebeamer_host: "https://codebeamer.com"
+fcu_project_id: "1005"
+fcu_requirement_name: "작업 항목"
 codebeamer_rq_icon_url: "/cb/displayDocument?doc_id=30320010"
-requirement_node_name: "상세 사양"
+requirement_node_name: "downstream ex"
+enable_csrf_token: false

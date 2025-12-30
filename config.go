@@ -15,14 +15,14 @@ type (
 		FcuRequirementName                 string `mapstructure:"fcu_requirement_name" validate:"required"`
 		CodebeamerRqIconUrl                string `mapstructure:"codebeamer_rq_icon_url" validate:"required,uri"`
 		TreeConfigDataExpression           string `mapstructure:"tree_config_data_expression" validate:"required"`
-		EnableRequirementNodeNameFiltering bool   `mapstructure:"enable_requirement_node_name_filtering" validate:"required"`
+		EnableRequirementNodeNameFiltering bool   `mapstructure:"enable_requirement_node_name_filtering"`
 		RequirementNodeName                string `mapstructure:"requirement_node_name" validate:"required"`
 
 		// API mechanism options
 		IssueContentSelector  string `mapstructure:"issue_content_selector" validate:"required"`
 		IntervalPerRequest    int    `mapstructure:"interval_per_request_ms" validate:"required"`
 		JsVariableWaitTimeout int    `mapstructure:"js_variable_wait_timeout_s" validate:"required"`
-		EnableCsrfToken       bool   `mapstructure:"enable_csrf_token" validate:"required"`
+		EnableCsrfToken       bool   `mapstructure:"enable_csrf_token"`
 		CsrfTokenExpression   string `mapstructure:"csrf_token_expression" validate:"required"`
 	}
 )
