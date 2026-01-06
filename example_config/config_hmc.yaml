@@ -3,4 +3,3 @@ fcu_project_id: "119"
 fcu_requirement_name: "소프트웨어 요구사양 FCU"
 codebeamer_rq_icon_url: "/cb/displayDocument?doc_id=30320010"
 requirement_node_name: "상세 사양"
-enable_csrf_token: false
