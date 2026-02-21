@@ -132,18 +132,28 @@ func main() {
 	// 사양 그래프를 생성
 	// 첫번째로, 모든 트래커를 재귀적으로 순회하며 그래프 생성
 	Logger.Info("start to construct graph")
+	IdToNode := map[string]*cgraph.Node{}
+
+	// 루트 노드 생성
 	gRootTracker := lo.Must(graph.CreateNodeByName(EscapeDotString(rootTracker.Id)))
+	IdToNode[rootTracker.Id] = gRootTracker
+
+	// 바로 하위의 최상위 트래커 노드 성
 	for _, childTracker := range vaildChildTracker {
 		gChildTracker := lo.Must(graph.CreateNodeByName(EscapeDotString(childTracker.Id)))
 		graph.CreateEdgeByName("", gRootTracker, gChildTracker)
 		childTracker.GraphNode = gChildTracker
+		IdToNode[childTracker.Id] = gChildTracker
 	}
+
 	// 두번째로, 트래커의 하위 이슈를 모두 순회하며 그래프 생성
 	var recursiveIssueGraph func(*IssueNode) *cgraph.Node
 	recursiveIssueGraph = func(issue *IssueNode) *cgraph.Node {
 		gIssue := lo.Must(graph.CreateNodeByName(EscapeDotString(issue.Id)))
+		IdToNode[issue.Id] = gIssue
 		for _, childIssue := range issue.RealChildren {
 			gChildIssue := lo.Must(graph.CreateNodeByName(EscapeDotString(childIssue.Id)))
+			IdToNode[childIssue.Id] = gChildIssue
 			graph.CreateEdgeByName("", gIssue, gChildIssue)
 			recursiveIssueGraph(childIssue)
 		}
@@ -157,21 +167,13 @@ func main() {
 		}
 	}
 
-	// 사양 그래프를 시각화
-	if saveGraph {
-		ctx := context.Background()
-		file := lo.Must(os.OpenFile("graph.svg", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666))
-		defer file.Close()
-		lo.Must0(g.Render(ctx, graph, graphviz.SVG, file))
-	}
-	Logger.Info("complete to construct graph")
-
 	// 사양 복잡도를 계산하기 위해 이슈에서 실제 사양 텍스트를 추출
 	var recursiveIssueText func(*IssueNode) []*IssueNode
 	recursiveIssueText = func(issue *IssueNode) []*IssueNode {
 		ret := []*IssueNode{}
 		if config.EnableRequirementNodeNameFiltering {
 			if issue.Text == config.RequirementNodeName {
+				Logger.WithField("issueText", issue.Text).Debug("issue text matched with RequirementNodeName")
 				ret = append(ret, issue)
 			}
 		} else {
@@ -182,16 +184,40 @@ func main() {
 		}
 		return ret
 	}
+
 	// 사양 텍스트들에서 사양 복잡도를 계산
 	complexity := map[string]int{}
+	issueRegex := regexp.MustCompile(`ISSUE:(\d+)`)
 	for _, childTracker := range vaildChildTracker {
 		for _, childIssue := range childTracker.Children {
+			issueNodes := recursiveIssueText(childIssue)
 			complexity[EscapeDotString(childIssue.Title)] = lo.Reduce[*IssueNode, int](
-				recursiveIssueText(childIssue),
+				issueNodes,
 				func(agg int, item *IssueNode, index int) int {
+					Logger.WithField("itemTitle", item.Title).Debug("calculating complexity for item")
 					for _, ci := range item.RealChildren {
-						agg += strings.Count(ci.Text, "ISSUE:")
-						agg += strings.Count(ci.Content, "ISSUE:")
+						for fieldName, fieldVal := range map[string]string{"Text": ci.Text, "Content": ci.Content} {
+							matches := issueRegex.FindAllStringSubmatch(fieldVal, -1)
+							for _, m := range matches {
+								issueId := m[1]
+								Logger.WithFields(logrus.Fields{
+									"issueId": issueId,
+								}).Debugf("hyperlinked issue id matched in %s", fieldName)
+
+								edgeFrom, fromOk := IdToNode[item.Id]
+								edgeTo, toOk := IdToNode[issueId]
+								if toOk && fromOk {
+									Logger.WithFields(logrus.Fields{
+										"fromId": item.Id,
+										"toId":   issueId,
+									}).Debug("edge from hyperlink")
+									lo.Must1(graph.CreateEdgeByName("", edgeFrom, edgeTo))
+								} else {
+									Logger.Error("issue edge creation failed")
+								}
+							}
+							agg += len(matches)
+						}
 					}
 					return agg
 				},
@@ -199,6 +225,15 @@ func main() {
 			)
 		}
 	}
+
+	// 사양 그래프를 시각화
+	if saveGraph {
+		ctx := context.Background()
+		file := lo.Must(os.OpenFile("graph.svg", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666))
+		defer file.Close()
+		lo.Must0(g.Render(ctx, graph, graphviz.SVG, file))
+	}
+	Logger.Info("complete to construct graph")
 
 	// 사양 복잡도 결과를 파일로 저장
 	complexityJson := lo.Must(json.MarshalIndent(complexity, "", "  "))
