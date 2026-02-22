@@ -125,25 +125,56 @@ func FillIssueChild(taskCtx context.Context, config ParsingConfig, targetIssue *
 
 // 최상위 트래커 -> 자식 트래커 -> 자식 이슈 까지 3단계의 자료형을 완성했다면 1대 자식 이슈까지 얻어온 것임
 // 이때 2대 이상의 하위 트래커를 재귀적으로 탐색하며 자료형을 완결시킴
-func RecursiveFillIssueChild(taskCtx context.Context, config ParsingConfig, issue *IssueNode, parentTrackerId string, sleepPerFill time.Duration) {
+func RecursiveFillIssueChild(taskCtx context.Context, config ParsingConfig, issue *IssueNode, parentTrackerId string, sleepPerFill time.Duration, weight float64, onProgress func(increment float64, node *IssueNode)) {
 	if err := FillIssueChild(taskCtx, config, issue, parentTrackerId); err != nil {
 		Logger.WithError(err).WithField("issueId", issue.Id).Warn("failed to process issue")
+		if onProgress != nil {
+			onProgress(weight, issue)
+		}
 		return
 	}
-	if !issue.HasChildren {
+	if !issue.HasChildren || len(issue.RealChildren) == 0 {
+		if onProgress != nil {
+			onProgress(weight, issue)
+		}
 		return
 	}
+
+	var chunk float64
+	if onProgress != nil {
+		chunk = weight / float64(len(issue.RealChildren)+1)
+		onProgress(chunk, issue)
+	}
+
 	for _, child := range issue.RealChildren {
 		time.Sleep(sleepPerFill)
-		RecursiveFillIssueChild(taskCtx, config, child, parentTrackerId, sleepPerFill)
+		RecursiveFillIssueChild(taskCtx, config, child, parentTrackerId, sleepPerFill, chunk, onProgress)
 	}
 }
 
 // 자식 트래커의 모든 하위 이슈의 Content를 얻어와 채움
-func FillChildIssueContent(taskCtx context.Context, config ParsingConfig, targetTracker *TrackerNode) {
+func FillChildIssueContent(taskCtx context.Context, config ParsingConfig, targetTracker *TrackerNode, weight float64, onProgress func(increment float64, node *IssueNode)) {
 	Logger.WithFields(logrus.Fields{
 		"trackerId": targetTracker.Id,
 	}).Debug("FillChildIssueContent")
+
+	totalIssues := 0
+	var countIssues func(issue *IssueNode) int
+	countIssues = func(issue *IssueNode) int {
+		c := 1
+		for _, child := range issue.RealChildren {
+			c += countIssues(child)
+		}
+		return c
+	}
+	for _, issue := range targetTracker.Children {
+		totalIssues += countIssues(issue)
+	}
+
+	var increment float64
+	if totalIssues > 0 {
+		increment = weight / float64(totalIssues)
+	}
 
 	var recursiveFillIssueContent func(issue *IssueNode) error
 	recursiveFillIssueContent = func(issue *IssueNode) error {
@@ -151,9 +182,9 @@ func FillChildIssueContent(taskCtx context.Context, config ParsingConfig, target
 			"trackerId": targetTracker.Id,
 		}).Debug("  - recursiveFillIssueContent")
 
-		taskCtx, taskCtxCancel := context.WithTimeout(taskCtx, time.Second*time.Duration(config.JsVariableWaitTimeout))
+		taskCtxTimeout, taskCtxCancel := context.WithTimeout(taskCtx, time.Second*time.Duration(config.JsVariableWaitTimeout))
 		var innerHTML []string
-		err := chromedp.Run(taskCtx,
+		err := chromedp.Run(taskCtxTimeout,
 			chromedp.Navigate(fmt.Sprintf(config.CodebeamerHost+config.IssuePageUrl, issue.Id)),
 			chromedp.WaitReady(config.IssueContentSelector, chromedp.ByQuery),
 			getInnerHtmlBySelector(config.IssueContentSelector, &innerHTML),
@@ -175,6 +206,10 @@ func FillChildIssueContent(taskCtx context.Context, config ParsingConfig, target
 			} else {
 				issue.Content = innerHTML[0]
 			}
+		}
+
+		if onProgress != nil {
+			onProgress(increment, issue)
 		}
 
 		if issue.HasChildren {

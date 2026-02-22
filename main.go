@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"html"
 	"log"
 	"os"
@@ -72,10 +73,12 @@ func main() {
 	Logger.WithField("config", config).Debug("config")
 
 	// 설정 값 검증
+	Logger.Info("validate configuration")
 	validate := validator.New()
 	lo.Must0(validate.Struct(&config))
 
 	// 사양 그래프 시각화를 위한 graphviz 초기화
+	Logger.Info("initialize graphviz")
 	g := lo.Must(graphviz.New(context.Background()))
 	defer g.Close()
 	graph := lo.Must(g.Graph())
@@ -113,6 +116,7 @@ func main() {
 		vaildChildTracker, rootTracker = CrawlCodebeamer(taskCtx, config, time.Duration(config.IntervalPerRequest)*time.Millisecond, partialCrawling != "", partialCrawling)
 
 		// 크롤링 결과를 저장
+		Logger.Info("save crawled tracker info to files")
 		lo.Must0(
 			os.WriteFile(
 				"valid_child_tracker.json",
@@ -147,6 +151,7 @@ func main() {
 	}
 
 	// 두번째로, 트래커의 하위 이슈를 모두 순회하며 그래프 생성
+	Logger.Info("construct graph for tracker's child issues")
 	var recursiveIssueGraph func(*IssueNode) *cgraph.Node
 	recursiveIssueGraph = func(issue *IssueNode) *cgraph.Node {
 		gIssue := lo.Must(graph.CreateNodeByName(EscapeDotString(issue.Id)))
@@ -168,6 +173,7 @@ func main() {
 	}
 
 	// 사양 복잡도를 계산하기 위해 이슈에서 실제 사양 텍스트를 추출
+	Logger.Info("extract specification text from issues")
 	var recursiveIssueText func(*IssueNode) []*IssueNode
 	recursiveIssueText = func(issue *IssueNode) []*IssueNode {
 		ret := []*IssueNode{}
@@ -186,6 +192,7 @@ func main() {
 	}
 
 	// 사양 텍스트들에서 사양 복잡도를 계산
+	Logger.Info("calculate specification complexity")
 	complexity := map[string]int{}
 	issueRegex := regexp.MustCompile(`ISSUE:(\d+)`)
 	for _, childTracker := range vaildChildTracker {
@@ -228,6 +235,7 @@ func main() {
 
 	// 사양 그래프를 시각화
 	if saveGraph {
+		Logger.Info("render and save graph.svg")
 		ctx := context.Background()
 		file := lo.Must(os.OpenFile("graph.svg", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666))
 		defer file.Close()
@@ -236,6 +244,7 @@ func main() {
 	Logger.Info("complete to construct graph")
 
 	// 사양 복잡도 결과를 파일로 저장
+	Logger.Info("save calculated complexity to file")
 	complexityJson := lo.Must(json.MarshalIndent(complexity, "", "  "))
 	lo.Must0(os.WriteFile("complexity.json", complexityJson, 0666))
 }
@@ -254,6 +263,7 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 
 	// API 중 CSRF 없으면 403 반환하는 API를 위한 호환성용
 	if config.EnableCsrfToken {
+		Logger.Info("fetch CSRF token for API compatibility")
 		csrfToken := lo.Must1(GetCsrfToken(taskCtx, config))
 		taskCtx = context.WithValue(taskCtx, "csrfToken", csrfToken)
 		Logger.WithField("value", csrfToken).Debug("csrf token updated")
@@ -268,8 +278,11 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 	}
 
 	// 최상위 트래커의 하위 트래커 목록을 재귀적으로 탐색
+	Logger.Info("find child trackers of root tracker")
 	vaildChildTracker = []*TrackerNode{}
-	for _, childTracker := range rootTracker.Children {
+	rootChildrenCount := len(rootTracker.Children)
+	trackerStartTime := time.Now()
+	for i, childTracker := range rootTracker.Children {
 		// 부분 파싱을 위한 테스트
 		childId := childTracker.Id
 		childTrackerId := strconv.Itoa(childTracker.TrackerId)
@@ -287,6 +300,20 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 		}
 
 		time.Sleep(delayPerRequest)
+		progress := float64(i+1) / float64(rootChildrenCount) * 100
+
+		elapsed := time.Since(trackerStartTime)
+		eta := time.Duration(0)
+		if progress > 0 && progress < 100 {
+			eta = time.Duration(float64(elapsed) * (100.0 - progress) / progress)
+		}
+
+		Logger.WithFields(logrus.Fields{
+			"trackerId": childTracker.Id,
+			"progress":  fmt.Sprintf("%.2f%%", progress),
+			"eta":       eta.Round(time.Second).String(),
+			"step":      fmt.Sprintf("%d/%d", i+1, rootChildrenCount),
+		}).Info("fill tracker child")
 		if err := FillTrackerChild(taskCtx, config, childTracker); err == nil {
 			vaildChildTracker = append(vaildChildTracker, childTracker)
 		} else {
@@ -297,15 +324,66 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 
 	// 찾은 모든 트래커들의 이슈를 탐색
 	Logger.Info("start to find issue")
-	for _, childTracker := range vaildChildTracker {
-		for _, childIssue := range childTracker.Children {
-			time.Sleep(delayPerRequest)
-			RecursiveFillIssueChild(taskCtx, config, childIssue, strconv.Itoa(childTracker.TrackerId), 300*time.Millisecond)
-		}
+	validTrackerCount := len(vaildChildTracker)
+	issueStartTime := time.Now()
+	var totalProgress float64 = 0
 
-		// 찾은 이슈의 본문 탐색 탐색
-		Logger.Info("  fill issue content")
-		FillChildIssueContent(taskCtx, config, childTracker)
+	for i, childTracker := range vaildChildTracker {
+		trackerWeight := 100.0 / float64(validTrackerCount)
+		Logger.WithFields(logrus.Fields{
+			"trackerId": childTracker.Id,
+			"step":      fmt.Sprintf("%d/%d", i+1, validTrackerCount),
+		}).Info("find issues for tracker")
+
+		childIssueCount := len(childTracker.Children)
+		if childIssueCount == 0 {
+			// 빈 트래커라도 탐색과정을 진행한 것으로 간주하여 전체 진행도를 정상적으로 올리기 위해 trackerWeight를 추가
+			totalProgress += trackerWeight
+		} else {
+			findWeight := trackerWeight * 0.5
+			fillWeight := trackerWeight * 0.5
+
+			for j, childIssue := range childTracker.Children {
+				time.Sleep(delayPerRequest)
+				issueWeight := findWeight / float64(childIssueCount)
+
+				RecursiveFillIssueChild(taskCtx, config, childIssue, strconv.Itoa(childTracker.TrackerId), 300*time.Millisecond, issueWeight, func(inc float64, node *IssueNode) {
+					totalProgress += inc
+
+					elapsed := time.Since(issueStartTime)
+					eta := time.Duration(0)
+					if totalProgress > 0 && totalProgress < 100 {
+						eta = time.Duration(float64(elapsed) * (100.0 - totalProgress) / totalProgress)
+					}
+
+					Logger.WithFields(logrus.Fields{
+						"issueId":  node.Id,
+						"progress": fmt.Sprintf("%.2f%%", totalProgress),
+						"eta":      eta.Round(time.Second).String(),
+						"step":     fmt.Sprintf("tracker=%d/%d top-issue=%d/%d", i+1, validTrackerCount, j+1, childIssueCount),
+					}).Info("fill issue child (recursive)")
+				})
+			}
+
+			// 찾은 이슈의 본문 탐색 탐색
+			Logger.WithField("trackerId", childTracker.Id).Info("fill issue content for tracker")
+			FillChildIssueContent(taskCtx, config, childTracker, fillWeight, func(inc float64, node *IssueNode) {
+				totalProgress += inc
+
+				elapsed := time.Since(issueStartTime)
+				eta := time.Duration(0)
+				if totalProgress > 0 && totalProgress < 100 {
+					eta = time.Duration(float64(elapsed) * (100.0 - totalProgress) / totalProgress)
+				}
+
+				Logger.WithFields(logrus.Fields{
+					"issueId":  node.Id,
+					"progress": fmt.Sprintf("%.2f%%", totalProgress),
+					"eta":      eta.Round(time.Second).String(),
+					"step":     fmt.Sprintf("tracker=%d/%d content-fill", i+1, validTrackerCount),
+				}).Info("fill issue content")
+			})
+		}
 	}
 
 	Logger.Info("complete to find issue")
