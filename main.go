@@ -287,8 +287,13 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 		Logger.WithField("target_id", partialId).Info("partial tracker find mode enabled")
 	}
 
+	// 전체 진행률은 트래커 스캔에 30%, 이슈 스캔에 70% 비중을 둡니다
+	// 전체 진행률은 트래커 스캔에 30%, 이슈 스캔에 70% 비중을 둡니다
+	const trackerProgressRatio = 30.0
+	const issueProgressRatio = 70.0
+
 	// 최상위 트래커의 하위 트래커 목록을 재귀적으로 탐색
-	Logger.Info("find child trackers of root tracker")
+	Logger.WithField("stepName", "(2/5) filling root and child trackers").Info("find child trackers of root tracker")
 	vaildChildTracker = []*TrackerNode{}
 	rootChildrenCount := len(rootTracker.Children)
 	trackerStartTime := time.Now()
@@ -310,7 +315,7 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 		}
 
 		time.Sleep(delayPerRequest)
-		progress := float64(i+1) / float64(rootChildrenCount) * 100
+		progress := (float64(i+1) / float64(rootChildrenCount)) * trackerProgressRatio
 
 		elapsed := time.Since(trackerStartTime)
 		eta := time.Duration(0)
@@ -323,6 +328,7 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 			"progress":  fmt.Sprintf("%.2f%%", progress),
 			"eta":       eta.Round(time.Second).String(),
 			"step":      fmt.Sprintf("%d/%d", i+1, rootChildrenCount),
+			"stepName":  "(3/5) filling tracker's children",
 		}).Info("fill tracker child")
 		if err := FillTrackerChild(taskCtx, config, childTracker); err == nil {
 			vaildChildTracker = append(vaildChildTracker, childTracker)
@@ -336,13 +342,14 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 	Logger.Info("start to find issue")
 	validTrackerCount := len(vaildChildTracker)
 	issueStartTime := time.Now()
-	var totalProgress float64 = 0
+	var totalProgress float64 = trackerProgressRatio
 
 	for i, childTracker := range vaildChildTracker {
-		trackerWeight := 100.0 / float64(validTrackerCount)
+		trackerWeight := issueProgressRatio / float64(validTrackerCount)
 		Logger.WithFields(logrus.Fields{
 			"trackerId": childTracker.Id,
 			"step":      fmt.Sprintf("%d/%d", i+1, validTrackerCount),
+			"stepName":  "(4/5) filling issue's children recursively",
 		}).Info("find issues for tracker")
 
 		childIssueCount := len(childTracker.Children)
@@ -371,12 +378,16 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 						"progress": fmt.Sprintf("%.2f%%", totalProgress),
 						"eta":      eta.Round(time.Second).String(),
 						"step":     fmt.Sprintf("tracker=%d/%d top-issue=%d/%d", i+1, validTrackerCount, j+1, childIssueCount),
+						"stepName": "(4/5) filling issue's children recursively",
 					}).Info("fill issue child (recursive)")
 				})
 			}
 
 			// 찾은 이슈의 본문 탐색 탐색
-			Logger.WithField("trackerId", childTracker.Id).Info("fill issue content for tracker")
+			Logger.WithFields(logrus.Fields{
+				"trackerId": childTracker.Id,
+				"stepName":  "(5/5) filling issue's content",
+			}).Info("fill issue content for tracker")
 			FillChildIssueContent(taskCtx, config, childTracker, fillWeight, func(inc float64, node *IssueNode) {
 				totalProgress += inc
 
@@ -391,6 +402,7 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 					"progress": fmt.Sprintf("%.2f%%", totalProgress),
 					"eta":      eta.Round(time.Second).String(),
 					"step":     fmt.Sprintf("tracker=%d/%d content-fill", i+1, validTrackerCount),
+					"stepName": "(5/5) filling issue's content",
 				}).Info("fill issue content")
 			})
 		}

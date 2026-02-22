@@ -13,9 +13,12 @@ import (
 )
 
 type guiLogHook struct {
-	formatter logrus.Formatter
-	logData   binding.String
-	progData  binding.Float
+	formatter    logrus.Formatter
+	logData      binding.String
+	progData     binding.Float
+	etaData      binding.String
+	stepData     binding.String
+	onLogUpdated func()
 }
 
 func (h *guiLogHook) Levels() []logrus.Level {
@@ -31,8 +34,23 @@ func (h *guiLogHook) Fire(entry *logrus.Entry) error {
 		}
 	}
 
-	b, _ := h.formatter.Format(entry)
-	msg := string(b)
+	// ETA 파싱
+	if etaStr, ok := entry.Data["eta"].(string); ok {
+		// Fyne UI에서 ETA를 표시할 바인딩이 있다면 거기에 업데이트
+		if h.etaData != nil {
+			h.etaData.Set("ETA: " + etaStr)
+		}
+	}
+
+	// 현재 작업 단계(step) 파싱 (예: "2) 루트 및 차일드 트래커 크롤링")
+	if stepStr, ok := entry.Data["stepName"].(string); ok {
+		if h.stepData != nil {
+			h.stepData.Set("Current Step: " + stepStr)
+		}
+	}
+
+	// 시간 및 레벨을 포함하여 가독성 좋게 포맷팅
+	msg := entry.Time.Format("15:04:05") + " [" + strings.ToUpper(entry.Level.String()) + "] " + entry.Message
 
 	curr, _ := h.logData.Get()
 	lines := strings.Split(curr, "\n")
@@ -40,8 +58,17 @@ func (h *guiLogHook) Fire(entry *logrus.Entry) error {
 	if len(lines) > 200 {
 		lines = lines[len(lines)-200:]
 	}
-	newLog := strings.Join(lines, "\n") + msg
+	newLog := strings.Join(lines, "\n")
+	if newLog != "" {
+		newLog += "\n"
+	}
+	newLog += msg
 	h.logData.Set(newLog)
+
+	// Fyne widget에서 자동으로 스크롤 맨 아래로 내리기 위한 콜백
+	if h.onLogUpdated != nil {
+		h.onLogUpdated()
+	}
 
 	return nil
 }
@@ -65,39 +92,53 @@ func startGUI(debugLog, saveGraph, skipCrawling bool, partialCrawling string) {
 	partialEntry.SetPlaceHolder("Tracker ID (leave empty for full crawl)")
 
 	logData := binding.NewString()
-	logData.Set("GUI Loaded. Ready to run.\n")
+	logData.Set("GUI Loaded. Ready to run.")
 
 	progData := binding.NewFloat()
+	etaData := binding.NewString()
+	etaData.Set("ETA: -")
+	stepData := binding.NewString()
+	stepData.Set("Current Step: Ready")
 
 	logEntry := widget.NewEntryWithData(logData)
 	logEntry.MultiLine = true
+	// Entry natively handles scrolling and tends to be safer with large text updates
+	logEntry.Disable() // Make it read-only
 
 	progressBar := widget.NewProgressBarWithData(progData)
+	etaLabel := widget.NewLabelWithData(etaData)
+	stepLabel := widget.NewLabelWithData(stepData)
+	stepLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	Logger.AddHook(&guiLogHook{
-		formatter: &logrus.TextFormatter{DisableColors: true},
-		logData:   logData,
-		progData:  progData,
+		formatter:    &logrus.TextFormatter{DisableColors: true},
+		logData:      logData,
+		progData:     progData,
+		etaData:      etaData,
+		stepData:     stepData,
+		onLogUpdated: nil, // Note: ScrollToBottom() is not thread-safe.
 	})
 
 	var runBtn *widget.Button
 	runBtn = widget.NewButton("Run Parser", func() {
 		runBtn.Disable()
 		go func() {
-			defer runBtn.Enable()
-
 			d := debugCheck.Checked
 			g := graphCheck.Checked
 			s := skipCheck.Checked
 			p := partialEntry.Text
 
-			logData.Set("Starting parser...\n")
+			logData.Set("Starting parser...")
 			progData.Set(0)
+			stepData.Set("Current Step: (1/5) pre-process for crawling")
 
 			runLogic(d, g, s, p)
 
 			curr, _ := logData.Get()
-			logData.Set(curr + "\nDone.\n")
+			logData.Set(curr + "\nDone.")
+			stepData.Set("Current Step: Finished")
+			etaData.Set("ETA: 0s")
+			progData.Set(1.0)
 		}()
 	})
 
@@ -108,7 +149,8 @@ func startGUI(debugLog, saveGraph, skipCrawling bool, partialCrawling string) {
 		skipCheck,
 		container.NewBorder(nil, nil, widget.NewLabel("Partial Crawl ID: "), nil, partialEntry),
 		widget.NewLabel(""),
-		progressBar,
+		stepLabel,
+		container.NewBorder(nil, nil, nil, etaLabel, progressBar),
 		runBtn,
 	)
 
