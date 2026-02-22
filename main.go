@@ -30,13 +30,23 @@ var Logger *logrus.Logger = logrus.New()
 // 사용자의 입력을 파싱하고 전체 로직을 수행합니다.
 func main() {
 	// 사용자의 입력을 flag로 받아옴
-	var debugLog, saveGraph, skipCrawling bool
+	var debugLog, saveGraph, skipCrawling, guiMode bool
 	var partialCrawling string
 	flag.BoolVar(&debugLog, "debug", false, "print debug log")
 	flag.BoolVar(&saveGraph, "graph", false, "save graph image")
 	flag.BoolVar(&skipCrawling, "skip-crawl", false, "skip crawling, using result.json instead")
 	flag.StringVar(&partialCrawling, "partial-crawl", "", "crawing only a tracker of given id")
+	flag.BoolVar(&guiMode, "gui", false, "run in GUI mode")
 	flag.Parse()
+
+	if guiMode {
+		startGUI(debugLog, saveGraph, skipCrawling, partialCrawling)
+	} else {
+		runLogic(debugLog, saveGraph, skipCrawling, partialCrawling)
+	}
+}
+
+func runLogic(debugLog, saveGraph, skipCrawling bool, partialCrawling string) {
 
 	// debug 플래그가 활성화된 경우, 로거를 디버그 모드로 변경
 	if debugLog {
