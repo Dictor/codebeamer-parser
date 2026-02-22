@@ -40,13 +40,13 @@ func main() {
 	flag.Parse()
 
 	if guiMode {
-		startGUI(debugLog, saveGraph, skipCrawling, partialCrawling)
+		startGUI(debugLog, saveGraph, skipCrawling, partialCrawling, guiMode)
 	} else {
-		runLogic(debugLog, saveGraph, skipCrawling, partialCrawling)
+		runLogic(debugLog, saveGraph, skipCrawling, partialCrawling, guiMode)
 	}
 }
 
-func runLogic(debugLog, saveGraph, skipCrawling bool, partialCrawling string) {
+func runLogic(debugLog, saveGraph, skipCrawling bool, partialCrawling string, guiMode bool) {
 
 	// debug 플래그가 활성화된 경우, 로거를 디버그 모드로 변경
 	if debugLog {
@@ -201,10 +201,12 @@ func runLogic(debugLog, saveGraph, skipCrawling bool, partialCrawling string) {
 		return ret
 	}
 
-	// 사양 텍스트들에서 사양 복잡도를 계산
-	Logger.Info("calculate specification complexity")
+	// 사양 텍스트들에서 사양 복잡도를 계산하고 하이퍼링크 참조 기반 엣지를 수집
+	Logger.Info("calculate specification complexity and collect hyperlink edges")
 	complexity := map[string]int{}
 	issueRegex := regexp.MustCompile(`ISSUE:(\d+)`)
+	linkRefs := make(map[string][]string) // fromID -> list of toIDs
+
 	for _, childTracker := range vaildChildTracker {
 		for _, childIssue := range childTracker.Children {
 			issueNodes := recursiveIssueText(childIssue)
@@ -220,6 +222,9 @@ func runLogic(debugLog, saveGraph, skipCrawling bool, partialCrawling string) {
 								Logger.WithFields(logrus.Fields{
 									"issueId": issueId,
 								}).Debugf("hyperlinked issue id matched in %s", fieldName)
+
+								// linkRefs 맵에 기록 (UI 시각화용)
+								linkRefs[item.Id] = append(linkRefs[item.Id], issueId)
 
 								edgeFrom, fromOk := IdToNode[item.Id]
 								edgeTo, toOk := IdToNode[issueId]
@@ -243,13 +248,25 @@ func runLogic(debugLog, saveGraph, skipCrawling bool, partialCrawling string) {
 		}
 	}
 
-	// 사양 그래프를 시각화
+	// 기존 구버전 go-graphviz 를 이용한 SVG 시각화는 백엔드 파일로만 남기되,
+	// 인터랙티브 탐색기 창은 GUI 모드 여부와 관계없이 saveGraph 옵션이 켜져있으면 연동함
 	if saveGraph {
-		Logger.Info("render and save graph.svg")
+		Logger.Info("render and save local graph.svg using standard graphviz")
 		ctx := context.Background()
 		file := lo.Must(os.OpenFile("graph.svg", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666))
-		defer file.Close()
+
 		lo.Must0(g.Render(ctx, graph, graphviz.SVG, file))
+		file.Close()
+
+		// 저장 직후, 그래프 탐색기 창 띄우기 (Webview 연동)
+		Logger.Info("opening interactive graph UI via webview")
+		if guiMode {
+			// Fyne의 메인 루프가 블록되지 않도록 고루틴으로 실행
+			go ShowGraphUI(rootTracker, vaildChildTracker, linkRefs)
+		} else {
+			// CLI 모드의 경우, 프로그램이 즉시 종료되지 않도록 메인 스레드에서 블록킹 실행
+			ShowGraphUI(rootTracker, vaildChildTracker, linkRefs)
+		}
 	}
 	Logger.Info("complete to construct graph")
 

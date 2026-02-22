@@ -73,7 +73,7 @@ func (h *guiLogHook) Fire(entry *logrus.Entry) error {
 	return nil
 }
 
-func startGUI(debugLog, saveGraph, skipCrawling bool, partialCrawling string) {
+func startGUI(debugLog, saveGraph, skipCrawling bool, partialCrawling string, guiMode bool) {
 	a := app.New()
 	w := a.NewWindow("Codebeamer Parser GUI")
 	w.Resize(fyne.NewSize(800, 600))
@@ -132,7 +132,7 @@ func startGUI(debugLog, saveGraph, skipCrawling bool, partialCrawling string) {
 			progData.Set(0)
 			stepData.Set("Current Step: (1/5) pre-process for crawling")
 
-			runLogic(d, g, s, p)
+			runLogic(d, g, s, p, guiMode)
 
 			curr, _ := logData.Get()
 			logData.Set(curr + "\nDone.")
