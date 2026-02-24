@@ -264,10 +264,10 @@ func runLogic(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling bool, partialC
 		Logger.Info("saving interactive graph UI as HTML and opening via default browser")
 		if guiMode {
 			// Fyne의 메인 루프가 블록되지 않도록 고루틴으로 실행
-			go SaveAndOpenGraphHTML(rootTracker, vaildChildTracker, linkRefs)
+			go SaveAndOpenGraphHTML(rootTracker, vaildChildTracker, linkRefs, true)
 		} else {
 			// CLI 모드의 경우, 프로그램이 즉시 종료되지 않도록 메인 스레드에서 블록킹 실행
-			SaveAndOpenGraphHTML(rootTracker, vaildChildTracker, linkRefs)
+			SaveAndOpenGraphHTML(rootTracker, vaildChildTracker, linkRefs, true)
 		}
 	}
 	Logger.Info("complete to construct graph")

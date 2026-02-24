@@ -27,7 +27,8 @@ type VisEdge struct {
 }
 
 // SaveAndOpenGraphHTML 루트 노드와 하위 트래커들을 분석하여 Vis.js의 클러스터링 기반 인터랙티브 HTML 뷰를 로컬에 저장하고 기본 브라우저를 통해 엽니다.
-func SaveAndOpenGraphHTML(rootTracker *RootTrackerNode, vaildChildTracker []*TrackerNode, linkRefs map[string][]string) {
+// openBrowser가 참일 경우 파일 저장 후 기본 브라우저를 통해 엽니다.
+func SaveAndOpenGraphHTML(rootTracker *RootTrackerNode, vaildChildTracker []*TrackerNode, linkRefs map[string][]string, openBrowser bool) {
 	Logger.Info("generating vis.js graph payload")
 
 	var nodes []VisNode
@@ -139,6 +140,9 @@ func SaveAndOpenGraphHTML(rootTracker *RootTrackerNode, vaildChildTracker []*Tra
 
     var container = document.getElementById('network');
     var data = { nodes: nodes, edges: edges };
+
+	var isLargeGraph = nodes.length > 500;
+
     var options = {
         nodes: {
             shape: 'box',
@@ -148,7 +152,7 @@ func SaveAndOpenGraphHTML(rootTracker *RootTrackerNode, vaildChildTracker []*Tra
             smooth: { type: 'continuous' }
         },
         physics: {
-            enabled: true,
+            enabled: !isLargeGraph, // Disable physics entirely initially if the graph is huge
             barnesHut: {
                 gravitationalConstant: -2000,
                 centralGravity: 0.3,
@@ -158,8 +162,8 @@ func SaveAndOpenGraphHTML(rootTracker *RootTrackerNode, vaildChildTracker []*Tra
                 avoidOverlap: 0.1
             },
             stabilization: {
-                enabled: true,
-                iterations: 1000,
+                enabled: !isLargeGraph, // Skip stabilization on huge graphs
+                iterations: isLargeGraph ? 0 : 1000,
                 updateInterval: 100
             }
         },
@@ -193,14 +197,20 @@ func SaveAndOpenGraphHTML(rootTracker *RootTrackerNode, vaildChildTracker []*Tra
         }
     };
 
-    // 물리 엔진 시뮬레이션 상태 표시
+    // 물리 엔진 시뮬레이션 상태 표시 (노드가 많으면 시뮬레이션 생략됨)
     network.on("stabilizationProgress", function(params) {
+		if(isLargeGraph) return;
         document.getElementById('loading').innerText = "Physics Simulation Running... " + Math.round((params.iterations/params.total)*100) + "%";
     });
     network.once("stabilizationIterationsDone", function() {
         document.getElementById('loading').style.display = 'none';
         network.setOptions({ physics: { enabled: false } }); // 렌더링 속도를 위해 초기 큰 이동 후 물리 끄기
     });
+	
+	// 대형 그래프는 시작하자마자 로딩 문구를 가림
+	if(isLargeGraph) {
+		document.getElementById('loading').style.display = 'none';
+	}
 	network.on("dragStart", function(params) {
 		if (params.nodes.length > 0) { network.setOptions({ physics: { enabled: true } }); }
 	});
@@ -248,6 +258,9 @@ func SaveAndOpenGraphHTML(rootTracker *RootTrackerNode, vaildChildTracker []*Tra
 	}
 
 	network.on("zoom", function (params) {
+		// 대형 그래프일 때는 자동 클러스터링 로직이 브라우저를 뻗게 만들 수 있으므로 비활성화
+		if(isLargeGraph) return;
+
 		var scale = network.getScale();
 		var threshold = 0.4; // 줌 아웃 임계값 (작을수록 멀리서 보는 것)
 
@@ -299,6 +312,12 @@ func SaveAndOpenGraphHTML(rootTracker *RootTrackerNode, vaildChildTracker []*Tra
 	htmlPath := "graph.html"
 	if err := os.WriteFile(htmlPath, buf.Bytes(), 0644); err != nil {
 		Logger.WithError(err).Error("Failed to write graph.html to disk")
+		return
+	}
+
+	// 매개변수로 브라우저 오픈이 전달되지 않으면 (ex. 테스트 환경 등) 생략
+	if !openBrowser {
+		Logger.Info("openBrowser flag is false, skipping browser launch")
 		return
 	}
 
