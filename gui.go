@@ -73,7 +73,7 @@ func (h *guiLogHook) Fire(entry *logrus.Entry) error {
 	return nil
 }
 
-func startGUI(debugLog, saveGraph, skipCrawling bool, partialCrawling string, guiMode bool) {
+func startGUI(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling bool, partialCrawling string, guiMode bool) {
 	a := app.New()
 	w := a.NewWindow("Codebeamer Parser GUI")
 	w.Resize(fyne.NewSize(800, 600))
@@ -81,8 +81,11 @@ func startGUI(debugLog, saveGraph, skipCrawling bool, partialCrawling string, gu
 	debugCheck := widget.NewCheck("Debug Log", nil)
 	debugCheck.SetChecked(debugLog)
 
-	graphCheck := widget.NewCheck("Save Graph Image", nil)
-	graphCheck.SetChecked(saveGraph)
+	graphSvgCheck := widget.NewCheck("Save Graph SVG", nil)
+	graphSvgCheck.SetChecked(saveGraphSvg)
+
+	graphHtmlCheck := widget.NewCheck("Save Graph HTML", nil)
+	graphHtmlCheck.SetChecked(saveGraphHtml)
 
 	skipCheck := widget.NewCheck("Skip Crawling", nil)
 	skipCheck.SetChecked(skipCrawling)
@@ -124,7 +127,8 @@ func startGUI(debugLog, saveGraph, skipCrawling bool, partialCrawling string, gu
 		runBtn.Disable()
 		go func() {
 			d := debugCheck.Checked
-			g := graphCheck.Checked
+			gSvg := graphSvgCheck.Checked
+			gHtml := graphHtmlCheck.Checked
 			s := skipCheck.Checked
 			p := partialEntry.Text
 
@@ -132,7 +136,7 @@ func startGUI(debugLog, saveGraph, skipCrawling bool, partialCrawling string, gu
 			progData.Set(0)
 			stepData.Set("Current Step: (1/5) pre-process for crawling")
 
-			runLogic(d, g, s, p, guiMode)
+			runLogic(d, gSvg, gHtml, s, p, guiMode)
 
 			curr, _ := logData.Get()
 			logData.Set(curr + "\nDone.")
@@ -145,7 +149,8 @@ func startGUI(debugLog, saveGraph, skipCrawling bool, partialCrawling string, gu
 	form := container.NewVBox(
 		widget.NewLabel("CLI Execution Options"),
 		debugCheck,
-		graphCheck,
+		graphSvgCheck,
+		graphHtmlCheck,
 		skipCheck,
 		container.NewBorder(nil, nil, widget.NewLabel("Partial Crawl ID: "), nil, partialEntry),
 		widget.NewLabel(""),

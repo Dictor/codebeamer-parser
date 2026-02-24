@@ -30,23 +30,24 @@ var Logger *logrus.Logger = logrus.New()
 // 사용자의 입력을 파싱하고 전체 로직을 수행합니다.
 func main() {
 	// 사용자의 입력을 flag로 받아옴
-	var debugLog, saveGraph, skipCrawling, guiMode bool
+	var debugLog, saveGraphSvg, saveGraphHtml, skipCrawling, guiMode bool
 	var partialCrawling string
 	flag.BoolVar(&debugLog, "debug", false, "print debug log")
-	flag.BoolVar(&saveGraph, "graph", false, "save graph image")
+	flag.BoolVar(&saveGraphSvg, "graphsvg", false, "save graph image as svg using graphviz")
+	flag.BoolVar(&saveGraphHtml, "graphhtml", false, "save graph ui as html and open browser")
 	flag.BoolVar(&skipCrawling, "skip-crawl", false, "skip crawling, using result.json instead")
 	flag.StringVar(&partialCrawling, "partial-crawl", "", "crawing only a tracker of given id")
 	flag.BoolVar(&guiMode, "gui", false, "run in GUI mode")
 	flag.Parse()
 
 	if guiMode {
-		startGUI(debugLog, saveGraph, skipCrawling, partialCrawling, guiMode)
+		startGUI(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling, partialCrawling, guiMode)
 	} else {
-		runLogic(debugLog, saveGraph, skipCrawling, partialCrawling, guiMode)
+		runLogic(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling, partialCrawling, guiMode)
 	}
 }
 
-func runLogic(debugLog, saveGraph, skipCrawling bool, partialCrawling string, guiMode bool) {
+func runLogic(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling bool, partialCrawling string, guiMode bool) {
 
 	// debug 플래그가 활성화된 경우, 로거를 디버그 모드로 변경
 	if debugLog {
@@ -248,24 +249,25 @@ func runLogic(debugLog, saveGraph, skipCrawling bool, partialCrawling string, gu
 		}
 	}
 
-	// 기존 구버전 go-graphviz 를 이용한 SVG 시각화는 백엔드 파일로만 남기되,
-	// 인터랙티브 탐색기 창은 GUI 모드 여부와 관계없이 saveGraph 옵션이 켜져있으면 연동함
-	if saveGraph {
+	// SVG 시각화는 백엔드 파일로만 남김
+	if saveGraphSvg {
 		Logger.Info("render and save local graph.svg using standard graphviz")
 		ctx := context.Background()
 		file := lo.Must(os.OpenFile("graph.svg", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666))
 
 		lo.Must0(g.Render(ctx, graph, graphviz.SVG, file))
 		file.Close()
+	}
 
-		// 저장 직후, 그래프 탐색기 창 띄우기 (Webview 연동)
-		Logger.Info("opening interactive graph UI via webview")
+	// HTML 인터랙티브 탐색기를 로컬 파일로 저장하고 기본 브라우저를 통해 오픈
+	if saveGraphHtml {
+		Logger.Info("saving interactive graph UI as HTML and opening via default browser")
 		if guiMode {
 			// Fyne의 메인 루프가 블록되지 않도록 고루틴으로 실행
-			go ShowGraphUI(rootTracker, vaildChildTracker, linkRefs)
+			go SaveAndOpenGraphHTML(rootTracker, vaildChildTracker, linkRefs)
 		} else {
 			// CLI 모드의 경우, 프로그램이 즉시 종료되지 않도록 메인 스레드에서 블록킹 실행
-			ShowGraphUI(rootTracker, vaildChildTracker, linkRefs)
+			SaveAndOpenGraphHTML(rootTracker, vaildChildTracker, linkRefs)
 		}
 	}
 	Logger.Info("complete to construct graph")

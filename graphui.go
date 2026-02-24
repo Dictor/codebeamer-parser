@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"runtime"
 	"text/template"
-
-	webview "github.com/webview/webview_go"
 )
 
 // VisNode represents a node in the vis.js network
@@ -25,9 +26,8 @@ type VisEdge struct {
 	Arrows string `json:"arrows"`
 }
 
-// ShowGraphUI 띄워진 파서 GUI 또는 새로운 어플리케이션 환경에서 그래프 탐색 윈도우를 엽니다.
-// 루트 노드와 하위 트래커들을 분석하여 Vis.js의 클러스터링 기반 인터랙티브 HTML 뷰를 띄웁니다.
-func ShowGraphUI(rootTracker *RootTrackerNode, vaildChildTracker []*TrackerNode, linkRefs map[string][]string) {
+// SaveAndOpenGraphHTML 루트 노드와 하위 트래커들을 분석하여 Vis.js의 클러스터링 기반 인터랙티브 HTML 뷰를 로컬에 저장하고 기본 브라우저를 통해 엽니다.
+func SaveAndOpenGraphHTML(rootTracker *RootTrackerNode, vaildChildTracker []*TrackerNode, linkRefs map[string][]string) {
 	Logger.Info("generating vis.js graph payload")
 
 	var nodes []VisNode
@@ -294,19 +294,29 @@ func ShowGraphUI(rootTracker *RootTrackerNode, vaildChildTracker []*TrackerNode,
 		return
 	}
 
-	// WebView 창 생성
-	Logger.Info("opening Webview window for interactive graph")
+	// HTML 파일로 기록
+	Logger.Info("saving interactive graph UI as graph.html")
+	htmlPath := "graph.html"
+	if err := os.WriteFile(htmlPath, buf.Bytes(), 0644); err != nil {
+		Logger.WithError(err).Error("Failed to write graph.html to disk")
+		return
+	}
 
-	// 웹뷰를 메인 스레드 계열에서 띄울수 있게 구동
-	// fyne/runLogic에서 분기되어 나왔을테니 goroutine 환경일수도 있으나 webview는 OS 메세지펌프를 위해
-	// 블락킹 방식으로 수행되거나 별도 프로세스 제어를 받게됨
+	// 기본 브라우저를 통해 HTML 파일 열기
+	Logger.Info("launching default OS browser to open graph.html")
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		// Windows: rundll32 url.dll,FileProtocolHandler 나 cmd /c start 사용 가능
+		cmd = exec.Command("cmd", "/c", "start", htmlPath)
+	case "darwin":
+		cmd = exec.Command("open", htmlPath)
+	default:
+		// Linux: xdg-open
+		cmd = exec.Command("xdg-open", htmlPath)
+	}
 
-	w := webview.New(true)
-	defer w.Destroy()
-	w.SetTitle("Graph Explorer (Interactive)")
-	w.SetSize(1200, 800, webview.HintNone)
-
-	// HTML을 Data URI 형태로 로딩
-	w.SetHtml(buf.String())
-	w.Run()
+	if err := cmd.Start(); err != nil {
+		Logger.WithError(err).Error("Failed to open browser, please check graph.html manually.")
+	}
 }
