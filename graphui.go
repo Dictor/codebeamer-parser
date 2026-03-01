@@ -152,15 +152,15 @@ func SaveAndOpenGraphHTML(rootTracker *RootTrackerNode, vaildChildTracker []*Tra
             .nodeVal('val')
             .nodeLabel('name')
             .enableNodeDrag(false) // 사용자의 드래그를 비활성화하여 오직 조회 위주의 부드러운 패닝만 지원
-            .linkColor(() => 'rgba(255,255,255,0.2)')
+            .linkColor(() => 'rgba(255,255,255,0.3)')
             .linkWidth(0.5)
             .cooldownTicks(100)
             .zoom(0.5);
             
         // 초기 물리엔진 파라미터 튜닝: 기본 노드들이 훨씬 오밀조밀하게 뭉치도록 설정
         // d3 객체가 글로벌에 없으므로 기존에 내장된 force 엔진 인스턴스를 직접 수정합니다.
-        Graph.d3Force('charge').strength(-15);
-        Graph.d3Force('link').distance(10);
+        // Graph.d3Force('charge').strength(-15);
+        // Graph.d3Force('link').distance(10);
         
         // 3. 줌 기반 클러스터링(Semantic Zoom) 및 시각적 LOD 구현
         
@@ -168,44 +168,6 @@ func SaveAndOpenGraphHTML(rootTracker *RootTrackerNode, vaildChildTracker []*Tra
         let isClustered = false;
         const ZOOM_THRESHOLD = 1.0; // 너무 줌인해야 펼쳐지지 않도록 임계점 조정
         
-        // 줌 이벤트 리스너: 특정 배율을 넘나들 때 데이터 교체 대신 시각적 가시성 변경
-        Graph.onZoom(z => {
-            currentZoom = z;
-            
-            // 데이터 클러스터링 스위치 로직
-            if (currentZoom < ZOOM_THRESHOLD && !isClustered) {
-                // 축소 모드: ISSUE 노드 및 연결된 자잘한 링크 시각적으로 숨기기
-                isClustered = true;
-                
-                Graph.nodeVisibility(node => node.id === 'ROOT' || node.id.startsWith('TRACKER'));
-                Graph.linkColor(link => {
-                    let sId = link.source.id || link.source;
-                    let tId = link.target.id || link.target;
-                    // 줌 아웃 시 ROOT와 TRACKER 간의 링크만 보이게 처리
-                    if ((sId === 'ROOT' && tId.startsWith('TRACKER')) || (tId === 'ROOT' && sId.startsWith('TRACKER'))) {
-                        return 'rgba(255,255,255,0.2)';
-                    }
-                    return 'rgba(255,255,255,0)';
-                });
-                
-                // 클러스터 덩어리들이 너무 멀어지지 않도록 응집도 단단하게 유지
-                Graph.d3Force('link').distance(40); 
-                Graph.d3Force('charge').strength(-40);
-                Graph.zoomToFit(400); // 클러스터(트래커) 단위로 다시 화면에 정렬
-                
-            } else if (currentZoom >= ZOOM_THRESHOLD && isClustered) {
-                // 확대 모드: 모든 이슈 노드와 링크 활성화
-                isClustered = false;
-                
-                Graph.nodeVisibility(() => true);
-                Graph.linkColor(() => 'rgba(255,255,255,0.2)');
-                
-                // 개별 노드 모드일 때는 거리를 가깝게 조정
-                Graph.d3Force('link').distance(10);
-                Graph.d3Force('charge').strength(-15);
-            }
-        });
-
         // 4. 인스턴스가 완전히 할당된 후 콜백 추가
         Graph.onEngineStop(() => {
             if (Graph && currentZoom === 0.5) { // 초기화 1회만 ToFit
