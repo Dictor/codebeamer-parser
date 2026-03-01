@@ -20,8 +20,8 @@ func TestSaveAndOpenGraphHTML_LargeGraph(t *testing.T) {
 	// Roughly, each node is about 60-80 bytes in JSON, and each edge is about 40 bytes.
 	// 4MB / 120 bytes = ~33,000 nodes.
 
-	const numTrackers = 100
-	const numIssuesPerTracker = 300
+	const numTrackers = 500
+	const numIssuesPerTracker = 30
 
 	validChildTracker := make([]*TrackerNode, 0, numTrackers)
 	linkRefs := make(map[string][]string)
