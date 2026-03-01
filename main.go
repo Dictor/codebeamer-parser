@@ -30,24 +30,24 @@ var Logger *logrus.Logger = logrus.New()
 // 사용자의 입력을 파싱하고 전체 로직을 수행합니다.
 func main() {
 	// 사용자의 입력을 flag로 받아옴
-	var debugLog, saveGraphSvg, saveGraphHtml, skipCrawling, guiMode bool
+	var debugLog, saveGraphSvg, saveGraphJson, skipCrawling, guiMode bool
 	var partialCrawling string
 	flag.BoolVar(&debugLog, "debug", false, "print debug log")
 	flag.BoolVar(&saveGraphSvg, "graphsvg", false, "save graph image as svg using graphviz")
-	flag.BoolVar(&saveGraphHtml, "graphhtml", false, "save graph ui as html and open browser")
+	flag.BoolVar(&saveGraphJson, "graphjson", false, "save graph data as json")
 	flag.BoolVar(&skipCrawling, "skip-crawl", false, "skip crawling, using result.json instead")
 	flag.StringVar(&partialCrawling, "partial-crawl", "", "crawing only a tracker of given id")
 	flag.BoolVar(&guiMode, "gui", false, "run in GUI mode")
 	flag.Parse()
 
 	if guiMode {
-		startGUI(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling, partialCrawling, guiMode)
+		startGUI(debugLog, saveGraphSvg, saveGraphJson, skipCrawling, partialCrawling, guiMode)
 	} else {
-		runLogic(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling, partialCrawling, guiMode)
+		runLogic(debugLog, saveGraphSvg, saveGraphJson, skipCrawling, partialCrawling, guiMode)
 	}
 }
 
-func runLogic(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling bool, partialCrawling string, guiMode bool) {
+func runLogic(debugLog, saveGraphSvg, saveGraphJson, skipCrawling bool, partialCrawling string, guiMode bool) {
 
 	// debug 플래그가 활성화된 경우, 로거를 디버그 모드로 변경
 	if debugLog {
@@ -148,10 +148,12 @@ func runLogic(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling bool, partialC
 	// 첫번째로, 모든 트래커를 재귀적으로 순회하며 그래프 생성
 	Logger.Info("start to construct graph")
 	IdToNode := map[string]*cgraph.Node{}
+	jsonGraph := NewJsonGraph()
 
 	// 루트 노드 생성
 	gRootTracker := lo.Must(graph.CreateNodeByName(EscapeDotString(rootTracker.Id)))
 	IdToNode[rootTracker.Id] = gRootTracker
+	jsonGraph.AddNode(EscapeDotString(rootTracker.Id), EscapeDotString(rootTracker.Text))
 
 	// 바로 하위의 최상위 트래커 노드 성
 	for _, childTracker := range vaildChildTracker {
@@ -159,6 +161,8 @@ func runLogic(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling bool, partialC
 		graph.CreateEdgeByName("", gRootTracker, gChildTracker)
 		childTracker.GraphNode = gChildTracker
 		IdToNode[childTracker.Id] = gChildTracker
+		jsonGraph.AddNode(EscapeDotString(childTracker.Id), EscapeDotString(childTracker.Text))
+		jsonGraph.AddEdge(EscapeDotString(rootTracker.Id), EscapeDotString(childTracker.Id))
 	}
 
 	// 두번째로, 트래커의 하위 이슈를 모두 순회하며 그래프 생성
@@ -167,10 +171,13 @@ func runLogic(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling bool, partialC
 	recursiveIssueGraph = func(issue *IssueNode) *cgraph.Node {
 		gIssue := lo.Must(graph.CreateNodeByName(EscapeDotString(issue.Id)))
 		IdToNode[issue.Id] = gIssue
+		jsonGraph.AddNode(EscapeDotString(issue.Id), EscapeDotString(issue.Title))
 		for _, childIssue := range issue.RealChildren {
 			gChildIssue := lo.Must(graph.CreateNodeByName(EscapeDotString(childIssue.Id)))
 			IdToNode[childIssue.Id] = gChildIssue
+			jsonGraph.AddNode(EscapeDotString(childIssue.Id), EscapeDotString(childIssue.Title))
 			graph.CreateEdgeByName("", gIssue, gChildIssue)
+			jsonGraph.AddEdge(EscapeDotString(issue.Id), EscapeDotString(childIssue.Id))
 			recursiveIssueGraph(childIssue)
 		}
 		return gIssue
@@ -180,6 +187,7 @@ func runLogic(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling bool, partialC
 		for _, childIssue := range childTracker.Children {
 			recursiveIssueGraph(childIssue)
 			graph.CreateEdgeByName("", childTracker.GraphNode.(*cgraph.Node), recursiveIssueGraph(childIssue))
+			jsonGraph.AddEdge(EscapeDotString(childTracker.Id), EscapeDotString(childIssue.Id))
 		}
 	}
 
@@ -235,6 +243,7 @@ func runLogic(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling bool, partialC
 										"toId":   issueId,
 									}).Debug("edge from hyperlink")
 									lo.Must1(graph.CreateEdgeByName("", edgeFrom, edgeTo))
+									jsonGraph.AddEdge(EscapeDotString(item.Id), EscapeDotString(issueId))
 								} else {
 									Logger.Error("issue edge creation failed")
 								}
@@ -259,15 +268,14 @@ func runLogic(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling bool, partialC
 		file.Close()
 	}
 
-	// HTML 인터랙티브 탐색기를 로컬 파일로 저장하고 기본 브라우저를 통해 오픈
-	if saveGraphHtml {
-		Logger.Info("saving interactive graph UI as HTML and opening via default browser")
+	// JSON 데이터 생성
+	if saveGraphJson {
+		Logger.Info("saving interactive graph UI as JSON")
 		if guiMode {
-			// Fyne의 메인 루프가 블록되지 않도록 고루틴으로 실행
-			go SaveAndOpenGraphHTML(rootTracker, vaildChildTracker, linkRefs, true)
+			// GUI가 멈추지 않도록 백그라운드로 실행
+			go SaveGraphJSON(jsonGraph)
 		} else {
-			// CLI 모드의 경우, 프로그램이 즉시 종료되지 않도록 메인 스레드에서 블록킹 실행
-			SaveAndOpenGraphHTML(rootTracker, vaildChildTracker, linkRefs, true)
+			SaveGraphJSON(jsonGraph)
 		}
 	}
 	Logger.Info("complete to construct graph")

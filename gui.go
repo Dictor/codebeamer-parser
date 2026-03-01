@@ -58,7 +58,7 @@ func (h *guiLogHook) Fire(entry *logrus.Entry) error {
 type guiState struct {
 	debugLog        widget.Bool
 	saveGraphSvg    widget.Bool
-	saveGraphHtml   widget.Bool
+	saveGraphJson   widget.Bool
 	skipCrawling    widget.Bool
 	partialCrawling widget.Editor
 	runBtn          widget.Clickable
@@ -72,7 +72,7 @@ type guiState struct {
 	isRunning bool
 }
 
-func startGUI(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling bool, partialCrawling string, guiMode bool) {
+func startGUI(debugLog, saveGraphSvg, saveGraphJson, skipCrawling bool, partialCrawling string, guiMode bool) {
 	state := &guiState{
 		etaText:  "ETA: -",
 		stepText: "Current Step: Ready",
@@ -80,7 +80,7 @@ func startGUI(debugLog, saveGraphSvg, saveGraphHtml, skipCrawling bool, partialC
 	}
 	state.debugLog.Value = debugLog
 	state.saveGraphSvg.Value = saveGraphSvg
-	state.saveGraphHtml.Value = saveGraphHtml
+	state.saveGraphJson.Value = saveGraphJson
 	state.skipCrawling.Value = skipCrawling
 	state.partialCrawling.SetText(partialCrawling)
 	state.partialCrawling.SingleLine = true
@@ -124,7 +124,7 @@ func loop(w *app.Window, state *guiState, guiMode bool) error {
 
 				d := state.debugLog.Value
 				gSvg := state.saveGraphSvg.Value
-				gHtml := state.saveGraphHtml.Value
+				gJson := state.saveGraphJson.Value
 				s := state.skipCrawling.Value
 				p := state.partialCrawling.Text()
 
@@ -133,7 +133,7 @@ func loop(w *app.Window, state *guiState, guiMode bool) error {
 				state.stepText = "Current Step: (1/5) pre-process for crawling"
 
 				go func() {
-					runLogic(d, gSvg, gHtml, s, p, guiMode)
+					runLogic(d, gSvg, gJson, s, p, guiMode)
 					state.logs = append(state.logs, "Done.")
 					state.stepText = "Current Step: Finished"
 					state.etaText = "ETA: 0s"
@@ -159,7 +159,7 @@ func loop(w *app.Window, state *guiState, guiMode bool) error {
 							}),
 							layout.Rigid(material.CheckBox(th, &state.debugLog, "Debug Log").Layout),
 							layout.Rigid(material.CheckBox(th, &state.saveGraphSvg, "Save Graph SVG").Layout),
-							layout.Rigid(material.CheckBox(th, &state.saveGraphHtml, "Save Graph HTML").Layout),
+							layout.Rigid(material.CheckBox(th, &state.saveGraphJson, "Save Graph JSON").Layout),
 							layout.Rigid(material.CheckBox(th, &state.skipCrawling, "Skip Crawling").Layout),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
