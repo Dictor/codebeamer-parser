@@ -26,8 +26,7 @@ func NewCrawler(crawlerType string, config ParsingConfig) (Crawler, error) {
 	case "chromedp":
 		return NewChromedpCrawler(config), nil
 	case "rest":
-		// TODO: Implement REST API crawler
-		return nil, fmt.Errorf("REST API crawler not implemented yet")
+		return NewRestCrawler(config), nil
 	default:
 		return nil, fmt.Errorf("unknown crawler type: %s", crawlerType)
 	}

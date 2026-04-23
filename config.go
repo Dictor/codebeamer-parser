@@ -24,5 +24,9 @@ type (
 		JsVariableWaitTimeout int    `mapstructure:"js_variable_wait_timeout_s" validate:"required"`
 		EnableCsrfToken       bool   `mapstructure:"enable_csrf_token"`
 		CsrfTokenExpression   string `mapstructure:"csrf_token_expression" validate:"required"`
+
+		// REST API credentials
+		Username string `mapstructure:"username"`
+		Password string `mapstructure:"password"`
 	}
 )

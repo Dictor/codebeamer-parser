@@ -30,7 +30,7 @@ var Logger *logrus.Logger = logrus.New()
 func main() {
 	// 사용자의 입력을 flag로 받아옴
 	var debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling, guiMode bool
-	var partialCrawling, crawlerType string
+	var partialCrawling, crawlerType, username, password string
 	flag.BoolVar(&debugLog, "debug", false, "print debug log")
 	flag.BoolVar(&saveGraphSvg, "graphsvg", false, "save graph image as svg using graphviz")
 	flag.BoolVar(&saveGraphJson, "graphjson", false, "save graph data as json")
@@ -39,6 +39,8 @@ func main() {
 	flag.StringVar(&partialCrawling, "partial-crawl", "", "crawing only a tracker of given id")
 	flag.BoolVar(&guiMode, "gui", false, "run in GUI mode")
 	flag.StringVar(&crawlerType, "crawler", "chromedp", "crawler type (chromedp, rest)")
+	flag.StringVar(&username, "username", "", "codebeamer username (for rest crawler)")
+	flag.StringVar(&password, "password", "", "codebeamer password (for rest crawler)")
 	flag.Parse()
 
 	// Windows에서 탐색기로 더블 클릭하여 실행한 경우 자동으로 GUI 모드 활성화
@@ -47,13 +49,13 @@ func main() {
 	}
 
 	if guiMode {
-		startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling, partialCrawling, guiMode, crawlerType)
+		startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling, partialCrawling, guiMode, crawlerType, username, password)
 	} else {
-		runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling, partialCrawling, guiMode, crawlerType)
+		runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling, partialCrawling, guiMode, crawlerType, username, password)
 	}
 }
 
-func runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling bool, partialCrawling string, guiMode bool, crawlerType string) {
+func runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling bool, partialCrawling string, guiMode bool, crawlerType, username, password string) {
 
 	// debug 플래그가 활성화된 경우, 로거를 디버그 모드로 변경
 	if debugLog {
@@ -87,6 +89,15 @@ func runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling b
 	lo.Must0(v.ReadInConfig())
 	config := ParsingConfig{}
 	lo.Must0(v.Unmarshal(&config))
+
+	// flag로 받은 값이 있으면 설정값 덮어쓰기
+	if username != "" {
+		config.Username = username
+	}
+	if password != "" {
+		config.Password = password
+	}
+
 	Logger.WithField("config", config).Debug("config")
 
 	// 설정 값 검증

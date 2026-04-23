@@ -62,6 +62,8 @@ type guiState struct {
 	saveGraphml     widget.Bool
 	skipCrawling    widget.Bool
 	partialCrawling widget.Editor
+	username        widget.Editor
+	password        widget.Editor
 	runBtn          widget.Clickable
 	logsList        widget.List
 
@@ -73,7 +75,7 @@ type guiState struct {
 	isRunning bool
 }
 
-func startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling bool, partialCrawling string, guiMode bool, crawlerType string) {
+func startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling bool, partialCrawling string, guiMode bool, crawlerType, username, password string) {
 	state := &guiState{
 		etaText:  "ETA: -",
 		stepText: "Current Step: Ready",
@@ -86,6 +88,10 @@ func startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling b
 	state.skipCrawling.Value = skipCrawling
 	state.partialCrawling.SetText(partialCrawling)
 	state.partialCrawling.SingleLine = true
+	state.username.SetText(username)
+	state.username.SingleLine = true
+	state.password.SetText(password)
+	state.password.SingleLine = true
 
 	state.logsList.Axis = layout.Vertical
 
@@ -99,7 +105,7 @@ func startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling b
 			state:     state,
 		})
 
-		if err := loop(w, state, guiMode, crawlerType); err != nil {
+		if err := loop(w, state, guiMode, crawlerType, username, password); err != nil {
 			logrus.Fatal(err)
 		}
 		os.Exit(0)
@@ -107,7 +113,7 @@ func startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling b
 	app.Main()
 }
 
-func loop(w *app.Window, state *guiState, guiMode bool, crawlerType string) error {
+func loop(w *app.Window, state *guiState, guiMode bool, crawlerType, username, password string) error {
 	th := material.NewTheme()
 
 	// To make sure logs auto-scroll when new items arrive
@@ -130,13 +136,15 @@ func loop(w *app.Window, state *guiState, guiMode bool, crawlerType string) erro
 				gMl := state.saveGraphml.Value
 				s := state.skipCrawling.Value
 				p := state.partialCrawling.Text()
+				u := state.username.Text()
+				pw := state.password.Text()
 
 				state.logs = append(state.logs, "Starting parser...")
 				state.progress = 0
 				state.stepText = "Current Step: (1/5) pre-process for crawling"
 
 				go func() {
-					runLogic(d, gSvg, gJson, gMl, s, p, guiMode, crawlerType)
+					runLogic(d, gSvg, gJson, gMl, s, p, guiMode, crawlerType, u, pw)
 					state.logs = append(state.logs, "Done.")
 					state.stepText = "Current Step: Finished"
 					state.etaText = "ETA: 0s"
@@ -170,7 +178,28 @@ func loop(w *app.Window, state *guiState, guiMode bool, crawlerType string) erro
 									layout.Rigid(material.Body1(th, "Partial Crawl ID: ").Layout),
 									layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-										ed := material.Editor(th, &state.partialCrawling, "Tracker ID (leave empty for full crawl)")
+										ed := material.Editor(th, &state.partialCrawling, "Tracker ID")
+										return ed.Layout(gtx)
+									}),
+								)
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+									layout.Rigid(material.Body1(th, "Username: ").Layout),
+									layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
+									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+										ed := material.Editor(th, &state.username, "Username")
+										return ed.Layout(gtx)
+									}),
+								)
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+									layout.Rigid(material.Body1(th, "Password: ").Layout),
+									layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
+									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+										ed := material.Editor(th, &state.password, "Password")
+										state.password.Mask = '*'
 										return ed.Layout(gtx)
 									}),
 								)
