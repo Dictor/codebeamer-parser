@@ -16,6 +16,7 @@ import (
 
 	"github.com/chromedp/chromedp"
 	"github.com/go-playground/validator/v10"
+	"github.com/inconshreveable/mousetrap"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -39,6 +40,11 @@ func main() {
 	flag.StringVar(&partialCrawling, "partial-crawl", "", "crawing only a tracker of given id")
 	flag.BoolVar(&guiMode, "gui", false, "run in GUI mode")
 	flag.Parse()
+
+	// Windows에서 탐색기로 더블 클릭하여 실행한 경우 자동으로 GUI 모드 활성화
+	if mousetrap.StartedByExplorer() {
+		guiMode = true
+	}
 
 	if guiMode {
 		startGUI(debugLog, saveGraphSvg, saveGraphJson, skipCrawling, partialCrawling, guiMode)
