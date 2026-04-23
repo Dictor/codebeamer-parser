@@ -31,11 +31,12 @@ var Logger *logrus.Logger = logrus.New()
 // 사용자의 입력을 파싱하고 전체 로직을 수행합니다.
 func main() {
 	// 사용자의 입력을 flag로 받아옴
-	var debugLog, saveGraphSvg, saveGraphJson, skipCrawling, guiMode bool
+	var debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling, guiMode bool
 	var partialCrawling string
 	flag.BoolVar(&debugLog, "debug", false, "print debug log")
 	flag.BoolVar(&saveGraphSvg, "graphsvg", false, "save graph image as svg using graphviz")
 	flag.BoolVar(&saveGraphJson, "graphjson", false, "save graph data as json")
+	flag.BoolVar(&saveGraphml, "graphml", false, "save graph data as graphml for yEd")
 	flag.BoolVar(&skipCrawling, "skip-crawl", false, "skip crawling, using result.json instead")
 	flag.StringVar(&partialCrawling, "partial-crawl", "", "crawing only a tracker of given id")
 	flag.BoolVar(&guiMode, "gui", false, "run in GUI mode")
@@ -47,13 +48,13 @@ func main() {
 	}
 
 	if guiMode {
-		startGUI(debugLog, saveGraphSvg, saveGraphJson, skipCrawling, partialCrawling, guiMode)
+		startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling, partialCrawling, guiMode)
 	} else {
-		runLogic(debugLog, saveGraphSvg, saveGraphJson, skipCrawling, partialCrawling, guiMode)
+		runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling, partialCrawling, guiMode)
 	}
 }
 
-func runLogic(debugLog, saveGraphSvg, saveGraphJson, skipCrawling bool, partialCrawling string, guiMode bool) {
+func runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling bool, partialCrawling string, guiMode bool) {
 
 	// debug 플래그가 활성화된 경우, 로거를 디버그 모드로 변경
 	if debugLog {
@@ -154,7 +155,7 @@ func runLogic(debugLog, saveGraphSvg, saveGraphJson, skipCrawling bool, partialC
 	// 첫번째로, 모든 트래커를 재귀적으로 순회하며 그래프 생성
 	Logger.Info("start to construct graph")
 	IdToNode := map[string]*cgraph.Node{}
-	jsonGraph := NewJsonGraph()
+	jsonGraph := NewExportGraph()
 
 	// 루트 노드 생성
 	gRootTracker := lo.Must(graph.CreateNodeByName(EscapeDotString(rootTracker.Id)))
@@ -282,6 +283,17 @@ func runLogic(debugLog, saveGraphSvg, saveGraphJson, skipCrawling bool, partialC
 			go SaveGraphJSON(jsonGraph)
 		} else {
 			SaveGraphJSON(jsonGraph)
+		}
+	}
+
+	// GraphML 데이터 생성
+	if saveGraphml {
+		Logger.Info("saving interactive graph UI as GraphML (yEd)")
+		if guiMode {
+			// GUI가 멈추지 않도록 백그라운드로 실행
+			go SaveGraphML(jsonGraph)
+		} else {
+			SaveGraphML(jsonGraph)
 		}
 	}
 	Logger.Info("complete to construct graph")
