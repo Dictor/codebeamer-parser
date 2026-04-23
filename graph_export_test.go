@@ -6,39 +6,56 @@ import (
 	"testing"
 )
 
-// TestSaveGraphJSON_LargeGraph creates a massive artificial graph and tests the JSON generation performance.
-func TestSaveGraphJSON_LargeGraph(t *testing.T) {
-	// Create a dummy JSON graph
-	jsonGraph := NewExportGraph()
+// generateDummyGraph creates a hierarchical graph based on branching factors for each depth.
+func generateDummyGraph(branchingFactors []int, addCrossLinks bool) *ExportGraph {
+	graph := NewExportGraph()
+	graph.AddNode("ROOT", "Massive Root Node")
 
-	const numTrackers = 500
-	const numIssuesPerTracker = 30
+	var allNodeIds []string
+	nodeCounter := 0
 
-	issueCounter := 0
-	jsonGraph.AddNode("ROOT", "Massive Root Tracker")
+	var recursiveAdd func(parentId string, depth int)
+	recursiveAdd = func(parentId string, depth int) {
+		if depth >= len(branchingFactors) {
+			return
+		}
 
-	for i := 0; i < numTrackers; i++ {
-		trackerId := fmt.Sprintf("TRACKER-%d", i)
-		jsonGraph.AddNode(trackerId, fmt.Sprintf("Tracker Node %d", i))
-		jsonGraph.AddEdge("ROOT", trackerId)
+		numChildren := branchingFactors[depth]
+		for i := 0; i < numChildren; i++ {
+			nodeId := fmt.Sprintf("NODE-%d", nodeCounter)
+			label := fmt.Sprintf("Node L%d-%d", depth, nodeCounter)
+			graph.AddNode(nodeId, label)
+			graph.AddEdge(parentId, nodeId)
+			allNodeIds = append(allNodeIds, nodeId)
+			nodeCounter++
 
-		for j := 0; j < numIssuesPerTracker; j++ {
-			issueId := fmt.Sprintf("ISSUE-%d", issueCounter)
-			jsonGraph.AddNode(issueId, fmt.Sprintf("Issue Node %d", issueCounter))
-			jsonGraph.AddEdge(trackerId, issueId)
-			issueCounter++
+			recursiveAdd(nodeId, depth+1)
+		}
+	}
 
-			// Add some random fake links mapping to simulate complex edges
-			if issueCounter > 10 && issueCounter%5 == 0 {
-				targetId := fmt.Sprintf("ISSUE-%d", issueCounter-7)
-				jsonGraph.AddEdge(issueId, targetId)
+	recursiveAdd("ROOT", 0)
+
+	// Simulate complex references (hyperlink linkages)
+	if addCrossLinks && len(allNodeIds) > 10 {
+		for i := 0; i < len(allNodeIds); i++ {
+			if i%7 == 0 {
+				source := allNodeIds[i]
+				target := allNodeIds[(i+13)%len(allNodeIds)]
+				graph.AddEdge(source, target)
 			}
 		}
 	}
 
+	return graph
+}
+
+// TestSaveGraphJSON_LargeGraph tests JSON generation with a large hierarchical graph.
+func TestSaveGraphJSON_LargeGraph(t *testing.T) {
+	// (200, 10, 5) results in 200 + (200*10) + (200*10*5) = 12,200 nodes
+	jsonGraph := generateDummyGraph([]int{200, 10, 5}, true)
+
 	SaveGraphJSON(jsonGraph)
 
-	// Check if graph.json was created
 	stat, err := os.Stat("graph.json")
 	if err != nil {
 		t.Fatalf("Failed to stat graph.json: %v", err)
@@ -46,45 +63,14 @@ func TestSaveGraphJSON_LargeGraph(t *testing.T) {
 
 	sizeMB := float64(stat.Size()) / 1024.0 / 1024.0
 	t.Logf("Generated graph.json size: %.2f MB", sizeMB)
-
-	if sizeMB < 0.2 {
-		t.Logf("Warning: Graph size is smaller than expected. Currently: %.2f MB", sizeMB)
-	}
 }
 
-// TestSaveGraphML_LargeGraph creates a massive artificial graph and tests the GraphML generation performance.
+// TestSaveGraphML_LargeGraph tests GraphML generation with a large hierarchical graph.
 func TestSaveGraphML_LargeGraph(t *testing.T) {
-	// Create a dummy JSON graph
-	jsonGraph := NewExportGraph()
-
-	const numTrackers = 500
-	const numIssuesPerTracker = 30
-
-	issueCounter := 0
-	jsonGraph.AddNode("ROOT", "Massive Root Tracker")
-
-	for i := 0; i < numTrackers; i++ {
-		trackerId := fmt.Sprintf("TRACKER-%d", i)
-		jsonGraph.AddNode(trackerId, fmt.Sprintf("Tracker Node %d", i))
-		jsonGraph.AddEdge("ROOT", trackerId)
-
-		for j := 0; j < numIssuesPerTracker; j++ {
-			issueId := fmt.Sprintf("ISSUE-%d", issueCounter)
-			jsonGraph.AddNode(issueId, fmt.Sprintf("Issue Node %d", issueCounter))
-			jsonGraph.AddEdge(trackerId, issueId)
-			issueCounter++
-
-			// Add some random fake links mapping to simulate complex edges
-			if issueCounter > 10 && issueCounter%5 == 0 {
-				targetId := fmt.Sprintf("ISSUE-%d", issueCounter-7)
-				jsonGraph.AddEdge(issueId, targetId)
-			}
-		}
-	}
+	jsonGraph := generateDummyGraph([]int{200, 10, 5}, true)
 
 	SaveGraphML(jsonGraph)
 
-	// Check if graph.graphml was created
 	stat, err := os.Stat("graph.graphml")
 	if err != nil {
 		t.Fatalf("Failed to stat graph.graphml: %v", err)
@@ -92,8 +78,4 @@ func TestSaveGraphML_LargeGraph(t *testing.T) {
 
 	sizeMB := float64(stat.Size()) / 1024.0 / 1024.0
 	t.Logf("Generated graph.graphml size: %.2f MB", sizeMB)
-
-	if sizeMB < 1.0 {
-		t.Logf("Warning: GraphML size is smaller than expected. Currently: %.2f MB", sizeMB)
-	}
 }
