@@ -174,7 +174,7 @@ func runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling b
 	// 루트 노드 생성
 	gRootTracker := lo.Must(graph.CreateNodeByName(EscapeDotString(rootTracker.Id)))
 	IdToNode[rootTracker.Id] = gRootTracker
-	jsonGraph.AddNode(EscapeDotString(rootTracker.Id), EscapeDotString(rootTracker.Text))
+	jsonGraph.AddNode(EscapeDotString(rootTracker.Id), EscapeDotString(rootTracker.Text), 0)
 
 	// 바로 하위의 최상위 트래커 노드 성
 	for _, childTracker := range vaildChildTracker {
@@ -182,32 +182,32 @@ func runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling b
 		graph.CreateEdgeByName("", gRootTracker, gChildTracker)
 		childTracker.GraphNode = gChildTracker
 		IdToNode[childTracker.Id] = gChildTracker
-		jsonGraph.AddNode(EscapeDotString(childTracker.Id), EscapeDotString(childTracker.Text))
+		jsonGraph.AddNode(EscapeDotString(childTracker.Id), EscapeDotString(childTracker.Text), 1)
 		jsonGraph.AddEdge(EscapeDotString(rootTracker.Id), EscapeDotString(childTracker.Id))
 	}
 
 	// 두번째로, 트래커의 하위 이슈를 모두 순회하며 그래프 생성
 	Logger.Info("construct graph for tracker's child issues")
-	var recursiveIssueGraph func(*IssueNode) *cgraph.Node
-	recursiveIssueGraph = func(issue *IssueNode) *cgraph.Node {
+	var recursiveIssueGraph func(*IssueNode, int) *cgraph.Node
+	recursiveIssueGraph = func(issue *IssueNode, depth int) *cgraph.Node {
 		gIssue := lo.Must(graph.CreateNodeByName(EscapeDotString(issue.Id)))
 		IdToNode[issue.Id] = gIssue
-		jsonGraph.AddNode(EscapeDotString(issue.Id), EscapeDotString(issue.Title))
+		jsonGraph.AddNode(EscapeDotString(issue.Id), EscapeDotString(issue.Title), depth)
 		for _, childIssue := range issue.RealChildren {
 			gChildIssue := lo.Must(graph.CreateNodeByName(EscapeDotString(childIssue.Id)))
 			IdToNode[childIssue.Id] = gChildIssue
-			jsonGraph.AddNode(EscapeDotString(childIssue.Id), EscapeDotString(childIssue.Title))
+			jsonGraph.AddNode(EscapeDotString(childIssue.Id), EscapeDotString(childIssue.Title), depth+1)
 			graph.CreateEdgeByName("", gIssue, gChildIssue)
 			jsonGraph.AddEdge(EscapeDotString(issue.Id), EscapeDotString(childIssue.Id))
-			recursiveIssueGraph(childIssue)
+			recursiveIssueGraph(childIssue, depth+1)
 		}
 		return gIssue
 	}
 
 	for _, childTracker := range vaildChildTracker {
 		for _, childIssue := range childTracker.Children {
-			recursiveIssueGraph(childIssue)
-			graph.CreateEdgeByName("", childTracker.GraphNode.(*cgraph.Node), recursiveIssueGraph(childIssue))
+			gIssue := recursiveIssueGraph(childIssue, 2)
+			graph.CreateEdgeByName("", childTracker.GraphNode.(*cgraph.Node), gIssue)
 			jsonGraph.AddEdge(EscapeDotString(childTracker.Id), EscapeDotString(childIssue.Id))
 		}
 	}

@@ -9,7 +9,7 @@ import (
 // generateDummyGraph creates a hierarchical graph based on branching factors for each depth.
 func generateDummyGraph(branchingFactors []int, addCrossLinks bool) *ExportGraph {
 	graph := NewExportGraph()
-	graph.AddNode("ROOT", "Massive Root Node")
+	graph.AddNode("ROOT", "Massive Root Node", 0)
 
 	var allNodeIds []string
 	nodeCounter := 0
@@ -24,7 +24,7 @@ func generateDummyGraph(branchingFactors []int, addCrossLinks bool) *ExportGraph
 		for i := 0; i < numChildren; i++ {
 			nodeId := fmt.Sprintf("NODE-%d", nodeCounter)
 			label := fmt.Sprintf("Node L%d-%d", depth, nodeCounter)
-			graph.AddNode(nodeId, label)
+			graph.AddNode(nodeId, label, depth+1)
 			graph.AddEdge(parentId, nodeId)
 			allNodeIds = append(allNodeIds, nodeId)
 			nodeCounter++

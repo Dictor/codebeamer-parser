@@ -14,7 +14,7 @@ type GraphML struct {
 	XmlnsYed       string   `xml:"xmlns:yed,attr"`
 	XmlnsXsi       string   `xml:"xmlns:xsi,attr"`
 	SchemaLocation string   `xml:"xsi:schemaLocation,attr"`
-	Key            GraphKey `xml:"key"`
+	Key            []GraphKey `xml:"key"`
 	Graph          Graph    `xml:"graph"`
 }
 
@@ -25,10 +25,10 @@ type GraphKey struct {
 }
 
 type Graph struct {
-	ID          string      `xml:"id,attr"`
-	EdgeDefault string      `xml:"edgedefault,attr"`
-	Nodes       []GraphNode `xml:"node"`
-	Edges       []GraphEdge `xml:"edge"`
+	ID           string      `xml:"id,attr"`
+	EdgeDefault  string      `xml:"edgedefault,attr"`
+	Nodes        []GraphNode `xml:"node"`
+	Edges        []GraphEdge `xml:"edge"`
 }
 
 type GraphNode struct {
@@ -42,7 +42,24 @@ type NodeData struct {
 }
 
 type ShapeNode struct {
-	Label string `xml:"y:NodeLabel"`
+	Geometry Geometry `xml:"y:Geometry"`
+	Fill     Fill     `xml:"y:Fill"`
+	Label    string   `xml:"y:NodeLabel"`
+	Shape    Shape    `xml:"y:Shape"`
+}
+
+type Geometry struct {
+	Height float64 `xml:"height,attr"`
+	Width  float64 `xml:"width,attr"`
+}
+
+type Fill struct {
+	Color       string `xml:"color,attr"`
+	Transparent string `xml:"transparent,attr"`
+}
+
+type Shape struct {
+	Type string `xml:"type,attr"`
 }
 
 type GraphEdge struct {
@@ -53,16 +70,20 @@ type GraphEdge struct {
 
 // SaveGraphML saves the graph as a GraphML file compatible with yEd
 func SaveGraphML(graphData *ExportGraph) {
+	Logger.Info("saving interactive graph UI as GraphML (yEd)")
+
 	gml := GraphML{
 		Xmlns:          "http://graphml.graphdrawing.org/xmlns",
 		XmlnsY:         "http://www.yworks.com/xml/graphml",
 		XmlnsYed:       "http://www.yworks.com/xml/yed/3",
 		XmlnsXsi:       "http://www.w3.org/2001/XMLSchema-instance",
 		SchemaLocation: "http://graphml.graphdrawing.org/xmlns http://www.yworks.com/xml/schema/graphml/1.1/ygraphml.xsd",
-		Key: GraphKey{
-			ID:        "d6",
-			For:       "node",
-			YFileType: "nodegraphics",
+		Key: []GraphKey{
+			{
+				ID:        "d6",
+				For:       "node",
+				YFileType: "nodegraphics",
+			},
 		},
 		Graph: Graph{
 			ID:          "G",
@@ -71,12 +92,31 @@ func SaveGraphML(graphData *ExportGraph) {
 	}
 
 	for _, n := range graphData.Nodes {
+		// Default style (Depth > 1)
+		fillColor := "#CCCCFF" // Light Blue
+		nodeShape := "rectangle"
+		width, height := 30.0, 30.0
+
+		// Apply specific styles based on depth
+		if n.Depth == 0 { // Root
+			fillColor = "#FF0000" // Red
+			nodeShape = "ellipse"
+			width, height = 60.0, 60.0
+		} else if n.Depth == 1 { // Tracker
+			fillColor = "#FFFF00" // Yellow
+			nodeShape = "ellipse"
+			width, height = 60.0, 60.0
+		}
+
 		gml.Graph.Nodes = append(gml.Graph.Nodes, GraphNode{
 			ID: n.Id,
 			Data: NodeData{
 				Key: "d6",
 				ShapeNode: ShapeNode{
-					Label: n.Label,
+					Geometry: Geometry{Width: width, Height: height},
+					Fill:     Fill{Color: fillColor, Transparent: "false"},
+					Label:    n.Label,
+					Shape:    Shape{Type: nodeShape},
 				},
 			},
 		})
@@ -110,6 +150,7 @@ func SaveGraphML(graphData *ExportGraph) {
 type ExportNode struct {
 	Id    string `json:"id"`
 	Label string `json:"label"`
+	Depth int    `json:"depth"`
 }
 
 type ExportEdge struct {
@@ -129,9 +170,9 @@ func NewExportGraph() *ExportGraph {
 	}
 }
 
-func (g *ExportGraph) AddNode(id, label string) {
+func (g *ExportGraph) AddNode(id, label string, depth int) {
 	if _, exists := g.Nodes[id]; !exists {
-		g.Nodes[id] = ExportNode{Id: id, Label: label}
+		g.Nodes[id] = ExportNode{Id: id, Label: label, Depth: depth}
 	}
 }
 
