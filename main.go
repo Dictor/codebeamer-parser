@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"html"
-	"log"
 	"os"
 	"regexp"
 	"strconv"
@@ -14,7 +13,6 @@ import (
 
 	"time"
 
-	"github.com/chromedp/chromedp"
 	"github.com/go-playground/validator/v10"
 	"github.com/inconshreveable/mousetrap"
 	"github.com/samber/lo"
@@ -32,7 +30,7 @@ var Logger *logrus.Logger = logrus.New()
 func main() {
 	// 사용자의 입력을 flag로 받아옴
 	var debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling, guiMode bool
-	var partialCrawling string
+	var partialCrawling, crawlerType string
 	flag.BoolVar(&debugLog, "debug", false, "print debug log")
 	flag.BoolVar(&saveGraphSvg, "graphsvg", false, "save graph image as svg using graphviz")
 	flag.BoolVar(&saveGraphJson, "graphjson", false, "save graph data as json")
@@ -40,6 +38,7 @@ func main() {
 	flag.BoolVar(&skipCrawling, "skip-crawl", false, "skip crawling, using result.json instead")
 	flag.StringVar(&partialCrawling, "partial-crawl", "", "crawing only a tracker of given id")
 	flag.BoolVar(&guiMode, "gui", false, "run in GUI mode")
+	flag.StringVar(&crawlerType, "crawler", "chromedp", "crawler type (chromedp, rest)")
 	flag.Parse()
 
 	// Windows에서 탐색기로 더블 클릭하여 실행한 경우 자동으로 GUI 모드 활성화
@@ -48,13 +47,13 @@ func main() {
 	}
 
 	if guiMode {
-		startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling, partialCrawling, guiMode)
+		startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling, partialCrawling, guiMode, crawlerType)
 	} else {
-		runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling, partialCrawling, guiMode)
+		runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling, partialCrawling, guiMode, crawlerType)
 	}
 }
 
-func runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling bool, partialCrawling string, guiMode bool) {
+func runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling bool, partialCrawling string, guiMode bool, crawlerType string) {
 
 	// debug 플래그가 활성화된 경우, 로거를 디버그 모드로 변경
 	if debugLog {
@@ -122,16 +121,20 @@ func runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling b
 		)
 	} else {
 		// 존재하지 않으므로, 크롤링 진행
-		// 크롬 브라우저 초기화
-		Logger.Info("init chrome connection")
-		allocCtx, cancelAlloc := chromedp.NewRemoteAllocator(context.Background(), config.ChromeDevtoolsURL)
-		defer cancelAlloc()
-		taskCtx, cancelTask := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
-		defer cancelTask()
+		// 크롤러 초기화
+		crawler, err := NewCrawler(crawlerType, config)
+		if err != nil {
+			Logger.WithError(err).Fatal("failed to initialize crawler")
+		}
+
+		if err := crawler.Login(); err != nil {
+			Logger.WithError(err).Fatal("failed to login")
+		}
+		defer crawler.Close()
 
 		// 크롤링 진행
 		// 이때 요청 당 간격을 300ms으로 설정하여 의도치 않은 DoS 공격을 방지
-		vaildChildTracker, rootTracker = CrawlCodebeamer(taskCtx, config, time.Duration(config.IntervalPerRequest)*time.Millisecond, partialCrawling != "", partialCrawling)
+		vaildChildTracker, rootTracker = CrawlCodebeamer(crawler, config, time.Duration(config.IntervalPerRequest)*time.Millisecond, partialCrawling != "", partialCrawling)
 
 		// 크롤링 결과를 저장
 		Logger.Info("save crawled tracker info to files")
@@ -305,28 +308,10 @@ func runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling b
 }
 
 // 크롬 브라우저를 제어하여 코드 비머의 정보를 파싱
-func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequest time.Duration, partialMode bool, partialId string) (vaildChildTracker []*TrackerNode, rootTracker *RootTrackerNode) {
-	// 코드 비머 Host URL로 접속하여 10초동안 대기
-	// 이 10초가 만료되기 전에 사용자는 크롬 브라우저 적절한 자격 증명으로 로그인을 완료해야함
-	Logger.Info("browser will be navigated to codebeamer page, please login until 10 sec")
-	lo.Must0(
-		chromedp.Run(taskCtx,
-			chromedp.Navigate(config.CodebeamerHost),
-			chromedp.Sleep(10*time.Second),
-		),
-	)
-
-	// API 중 CSRF 없으면 403 반환하는 API를 위한 호환성용
-	if config.EnableCsrfToken {
-		Logger.Info("fetch CSRF token for API compatibility")
-		csrfToken := lo.Must1(GetCsrfToken(taskCtx, config))
-		taskCtx = context.WithValue(taskCtx, "csrfToken", csrfToken)
-		Logger.WithField("value", csrfToken).Debug("csrf token updated")
-	}
-
+func CrawlCodebeamer(crawler Crawler, config ParsingConfig, delayPerRequest time.Duration, partialMode bool, partialId string) (vaildChildTracker []*TrackerNode, rootTracker *RootTrackerNode) {
 	// 최상위 트래커를 검색
 	Logger.Info("start to find tracker")
-	rootTracker = lo.Must1(FindRootTrackerByName(taskCtx, config, config.FcuRequirementName))
+	rootTracker = lo.Must1(crawler.FindRootTrackerByName(config.FcuRequirementName))
 
 	if partialMode {
 		Logger.WithField("target_id", partialId).Info("partial tracker find mode enabled")
@@ -375,7 +360,7 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 			"step":      fmt.Sprintf("%d/%d", i+1, rootChildrenCount),
 			"stepName":  "(3/5) filling tracker's children",
 		}).Info("fill tracker child")
-		if err := FillTrackerChild(taskCtx, config, childTracker); err == nil {
+		if err := crawler.FillTrackerChild(childTracker); err == nil {
 			vaildChildTracker = append(vaildChildTracker, childTracker)
 		} else {
 			Logger.WithError(err).WithField("trackerId", childTracker.TrackerId).Warn("failed to process tracker")
@@ -409,7 +394,7 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 				time.Sleep(delayPerRequest)
 				issueWeight := findWeight / float64(childIssueCount)
 
-				RecursiveFillIssueChild(taskCtx, config, childIssue, strconv.Itoa(childTracker.TrackerId), 300*time.Millisecond, issueWeight, func(inc float64, node *IssueNode) {
+				RecursiveFillIssueChild(crawler, childIssue, strconv.Itoa(childTracker.TrackerId), 300*time.Millisecond, issueWeight, func(inc float64, node *IssueNode) {
 					totalProgress += inc
 
 					elapsed := time.Since(issueStartTime)
@@ -433,7 +418,7 @@ func CrawlCodebeamer(taskCtx context.Context, config ParsingConfig, delayPerRequ
 				"trackerId": childTracker.Id,
 				"stepName":  "(5/5) filling issue's content",
 			}).Info("fill issue content for tracker")
-			FillChildIssueContent(taskCtx, config, childTracker, fillWeight, func(inc float64, node *IssueNode) {
+			FillChildIssueContent(crawler, childTracker, fillWeight, func(inc float64, node *IssueNode) {
 				totalProgress += inc
 
 				elapsed := time.Since(issueStartTime)

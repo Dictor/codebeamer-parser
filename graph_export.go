@@ -25,10 +25,10 @@ type GraphKey struct {
 }
 
 type Graph struct {
-	ID           string      `xml:"id,attr"`
-	EdgeDefault  string      `xml:"edgedefault,attr"`
-	Nodes        []GraphNode `xml:"node"`
-	Edges        []GraphEdge `xml:"edge"`
+	ID          string      `xml:"id,attr"`
+	EdgeDefault string      `xml:"edgedefault,attr"`
+	Nodes       []GraphNode `xml:"node"`
+	Edges       []GraphEdge `xml:"edge"`
 }
 
 type GraphNode struct {
@@ -53,8 +53,6 @@ type GraphEdge struct {
 
 // SaveGraphML saves the graph as a GraphML file compatible with yEd
 func SaveGraphML(graphData *ExportGraph) {
-	Logger.Info("saving interactive graph UI as GraphML (yEd)")
-
 	gml := GraphML{
 		Xmlns:          "http://graphml.graphdrawing.org/xmlns",
 		XmlnsY:         "http://www.yworks.com/xml/graphml",

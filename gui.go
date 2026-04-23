@@ -73,7 +73,7 @@ type guiState struct {
 	isRunning bool
 }
 
-func startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling bool, partialCrawling string, guiMode bool) {
+func startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling bool, partialCrawling string, guiMode bool, crawlerType string) {
 	state := &guiState{
 		etaText:  "ETA: -",
 		stepText: "Current Step: Ready",
@@ -99,7 +99,7 @@ func startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling b
 			state:     state,
 		})
 
-		if err := loop(w, state, guiMode); err != nil {
+		if err := loop(w, state, guiMode, crawlerType); err != nil {
 			logrus.Fatal(err)
 		}
 		os.Exit(0)
@@ -107,7 +107,7 @@ func startGUI(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling b
 	app.Main()
 }
 
-func loop(w *app.Window, state *guiState, guiMode bool) error {
+func loop(w *app.Window, state *guiState, guiMode bool, crawlerType string) error {
 	th := material.NewTheme()
 
 	// To make sure logs auto-scroll when new items arrive
@@ -136,7 +136,7 @@ func loop(w *app.Window, state *guiState, guiMode bool) error {
 				state.stepText = "Current Step: (1/5) pre-process for crawling"
 
 				go func() {
-					runLogic(d, gSvg, gJson, gMl, s, p, guiMode)
+					runLogic(d, gSvg, gJson, gMl, s, p, guiMode, crawlerType)
 					state.logs = append(state.logs, "Done.")
 					state.stepText = "Current Step: Finished"
 					state.etaText = "ETA: 0s"
