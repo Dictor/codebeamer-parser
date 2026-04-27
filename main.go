@@ -38,7 +38,7 @@ func main() {
 	flag.BoolVar(&skipCrawling, "skip-crawl", false, "skip crawling, using result.json instead")
 	flag.StringVar(&partialCrawling, "partial-crawl", "", "crawing only a tracker of given id")
 	flag.BoolVar(&guiMode, "gui", false, "run in GUI mode")
-	flag.StringVar(&crawlerType, "crawler", "chromedp", "crawler type (chromedp, rest)")
+	flag.StringVar(&crawlerType, "crawler", "rest", "crawler type (chromedp, rest)")
 	flag.StringVar(&username, "username", "", "codebeamer username (for rest crawler)")
 	flag.StringVar(&password, "password", "", "codebeamer password (for rest crawler)")
 	flag.Parse()
