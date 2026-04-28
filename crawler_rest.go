@@ -89,52 +89,94 @@ func (c *RestCrawler) Login() error {
 	}
 }
 
+type trackerTreeNode struct {
+	IsFolder  bool              `json:"isFolder"`
+	Text      string            `json:"text"`
+	TrackerId int               `json:"trackerId"`
+	Children  []trackerTreeNode `json:"children"`
+}
+
 type trackerResponse struct {
 	Id   int    `json:"id"`
 	Name string `json:"name"`
 }
 
 func (c *RestCrawler) FindRootTrackerByName(name string) (*RootTrackerNode, error) {
-	url := fmt.Sprintf("%s/cb/api/v3/projects/%s/trackers", c.config.CodebeamerHost, c.config.FcuProjectId)
-	
-	resp, err := c.doRequest("GET", url, nil)
+	// 1. 트리 API를 통해 트래커/폴더 구조 조회
+	treeUrl := fmt.Sprintf("%s/cb/api/v3/trackers/tree?projectId=%s", c.config.CodebeamerHost, c.config.FcuProjectId)
+	treeResp, err := c.doRequest("GET", treeUrl, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer treeResp.Body.Close()
 
-	var result []trackerResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	var tree []trackerTreeNode
+	if err := json.NewDecoder(treeResp.Body).Decode(&tree); err != nil {
 		return nil, err
 	}
 
-	var target *trackerResponse
-	for i := range result {
-		if strings.TrimSpace(result[i].Name) == strings.TrimSpace(name) {
-			target = &result[i]
-			break
+	// 2. 이름이 일치하는 노드 검색 (재귀)
+	var findNode func([]trackerTreeNode, string) *trackerTreeNode
+	findNode = func(nodes []trackerTreeNode, targetName string) *trackerTreeNode {
+		for i := range nodes {
+			if strings.TrimSpace(nodes[i].Text) == strings.TrimSpace(targetName) {
+				return &nodes[i]
+			}
+			if len(nodes[i].Children) > 0 {
+				if found := findNode(nodes[i].Children, targetName); found != nil {
+					return found
+				}
+			}
+		}
+		return nil
+	}
+
+	targetNode := findNode(tree, name)
+	if targetNode == nil {
+		return nil, fmt.Errorf("root tracker or folder not found: %s", name)
+	}
+
+	// 3. 자식 트래커 ID 목록 수집
+	childIds := make(map[int]bool)
+	for _, child := range targetNode.Children {
+		if child.TrackerId != 0 {
+			childIds[child.TrackerId] = true
 		}
 	}
 
-	if target == nil {
-		return nil, fmt.Errorf("root tracker not found: %s", name)
+	// 4. 프로젝트의 모든 트래커 정보를 가져와서 필터링
+	trackersUrl := fmt.Sprintf("%s/cb/api/v3/projects/%s/trackers", c.config.CodebeamerHost, c.config.FcuProjectId)
+	trackersResp, err := c.doRequest("GET", trackersUrl, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer trackersResp.Body.Close()
+
+	var allTrackers []trackerResponse
+	if err := json.NewDecoder(trackersResp.Body).Decode(&allTrackers); err != nil {
+		return nil, err
 	}
 
+	// 5. RootTrackerNode 구성
 	root := &RootTrackerNode{
 		Tracker: Tracker{
 			Id:        "work",
 			TrackerId: 0,
-			Text:      target.Name,
+			Text:      targetNode.Text,
 		},
-		Children: []*TrackerNode{
-			{
+		Children: make([]*TrackerNode, 0),
+	}
+
+	for _, t := range allTrackers {
+		if childIds[t.Id] {
+			root.Children = append(root.Children, &TrackerNode{
 				Tracker: Tracker{
-					Id:        fmt.Sprintf("%d-tracker", target.Id),
-					TrackerId: target.Id,
-					Text:      target.Name,
+					Id:        fmt.Sprintf("%d-tracker", t.Id),
+					TrackerId: t.Id,
+					Text:      t.Name,
 				},
-			},
-		},
+			})
+		}
 	}
 
 	return root, nil
