@@ -254,17 +254,17 @@ func runLogic(debugLog, saveGraphSvg, saveGraphJson, saveGraphml, skipCrawling b
 								}).Debugf("hyperlinked issue id matched in %s", fieldName)
 
 								// linkRefs 맵에 기록 (UI 시각화용)
-								linkRefs[item.Id] = append(linkRefs[item.Id], issueId)
+								linkRefs[ci.Id] = append(linkRefs[ci.Id], issueId)
 
-								edgeFrom, fromOk := IdToNode[item.Id]
+								edgeFrom, fromOk := IdToNode[ci.Id]
 								edgeTo, toOk := IdToNode[issueId]
 								if toOk && fromOk {
 									Logger.WithFields(logrus.Fields{
-										"fromId": item.Id,
+										"fromId": ci.Id,
 										"toId":   issueId,
 									}).Debug("edge from hyperlink")
 									lo.Must1(graph.CreateEdgeByName("", edgeFrom, edgeTo))
-									jsonGraph.AddEdge(EscapeDotString(item.Id), EscapeDotString(issueId))
+									jsonGraph.AddEdge(EscapeDotString(ci.Id), EscapeDotString(issueId))
 								} else {
 									Logger.Error("issue edge creation failed")
 								}

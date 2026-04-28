@@ -247,9 +247,6 @@ func (c *RestCrawler) FillTrackerChild(tracker *TrackerNode) error {
 	return nil
 }
 
-
-
-
 type itemField struct {
 	Name   string      `json:"name"`
 	Value  interface{} `json:"value"`
@@ -320,12 +317,16 @@ func (c *RestCrawler) FillIssueChild(issue *IssueNode, parentTrackerId string) e
 		}
 	}
 
+	if len(issue.RealChildren) > 0 {
+		issue.HasChildren = true
+	}
+
 	return nil
 }
 
 func (c *RestCrawler) FillIssueContent(issue *IssueNode) error {
 	Logger.WithField("issueId", issue.Id).Info("fetching issue content")
-	
+
 	// Step 4 mentions /items/{itemId}/field for icon and /items/{itemId}/fields for Description.
 	// However, GET /items/{itemId} provides both iconUrl and description directly.
 	url := fmt.Sprintf("%s/cb/api/v3/items/%s", c.config.CodebeamerHost, issue.Id)
@@ -351,7 +352,6 @@ func (c *RestCrawler) FillIssueContent(issue *IssueNode) error {
 
 	return nil
 }
-
 
 func (c *RestCrawler) Close() error {
 	return nil
